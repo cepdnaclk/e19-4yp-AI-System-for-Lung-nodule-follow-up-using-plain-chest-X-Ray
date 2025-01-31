@@ -1,7 +1,5 @@
 ___
-# DELETE THIS INSTRUCTIONS AND ADD A SHORT INTRODUCTION ABOUT YOUR PROJECT
+# AI System for Lung nodule follow up using plain chest X Ray
 ___
 
-## Please refer the instructions in below URL:
-
-https://projects.ce.pdn.ac.lk/docs/how-to-add-a-project
+This research focuses on developing an AI-driven framework to detect and monitor lung nodules using chest X-rays, addressing the limitations of existing diagnostic methods. The system integrates CT-to-X-ray image synthesis and deep learning models to improve detection accuracy while ensuring clinical validation.
