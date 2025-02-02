@@ -2,9 +2,11 @@
 # Please refer above link to know the available configurations
 
 title: ""
-theme: jekyll-theme-cayman
+remote_theme: pages-themes/cayman@v0.2.0
 description: ""
 markdown: kramdown
+plugins:
+- jekyll-remote-theme
 
 kramdown:
   parse_block_html: true
