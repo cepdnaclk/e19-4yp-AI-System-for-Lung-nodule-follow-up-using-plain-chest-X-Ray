@@ -378,10 +378,14 @@ class CTtoXrayConverter:
             mu_max = self.mu_max.get()
             clip_percentile = self.clip_percentile.get()
             blur_sigma = self.blur_sigma.get()
+
+            # Remove air/background (e.g., threshold below -500 HU)
+            body_mask = self.ct_image > -500  # adjust threshold as needed
+            ct_body_only = np.where(body_mask, self.ct_image, -1000)  # replace background with air (very low HU)
             
             # Step 1: Scale the CT values to attenuation coefficients
-            hu_min, hu_max = np.min(self.ct_image), np.max(self.ct_image)
-            mu_volume = mu_min + (self.ct_image - hu_min) * (mu_max - mu_min) / (hu_max - hu_min)
+            hu_min, hu_max = np.min(ct_body_only), np.max(ct_body_only)
+            mu_volume = mu_min + (ct_body_only - hu_min) * (mu_max - mu_min) / (hu_max - hu_min)
             
             # Step 2: Apply Beer-Lambert law: I = I_0 * exp(-∫μ(x)dx)
             attenuation_sum = np.sum(mu_volume, axis=axis)
@@ -420,6 +424,7 @@ class CTtoXrayConverter:
         # Invert if traditional X-ray look is desired (white bones on black background)
         if self.invert_xray.get():
             xray = 1 - xray
+            #xray = np.power(xray, 1.5) # A non-linear transform to emphasize higher attenuating structures (e.g. bone). This darkens low-density regions more sharply, emphasizing structure.
             
         return xray
     
