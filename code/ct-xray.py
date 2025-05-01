@@ -196,7 +196,12 @@ class CTtoXrayConverter:
                 reader.SetFileNames(dicom_names)
                 image = reader.Execute()
                 self.ct_image = sitk.GetArrayFromImage(image)
+
+                # Extract voxel spacing
+                self.spacing = image.GetSpacing()  # (z, y, x)
                 
+                print(f"Loaded DICOM series with spacing: {self.spacing}")
+
                 # Setup slice slider for 3D volume
                 self.setup_slice_slider()
                 
@@ -435,7 +440,13 @@ class CTtoXrayConverter:
         # Flip the X-ray image vertically
         flipped_xray = np.flipud(self.xray_image)
 
-        self.ax2.imshow(flipped_xray, cmap='gray' , aspect='auto')
+        # Calculate aspect ratio based on voxel spacing
+        if hasattr(self, 'spacing'):
+            aspect_ratio = self.spacing[2] / self.spacing[1]  # y-spacing / z-spacing
+        else:
+            aspect_ratio = 1  # Default to 1 if spacing is not available
+
+        self.ax2.imshow(flipped_xray, cmap='gray' , aspect=aspect_ratio)
         self.ax2.set_title("X-ray Projection")
         self.ax2.axis('off')
         self.fig.tight_layout()
