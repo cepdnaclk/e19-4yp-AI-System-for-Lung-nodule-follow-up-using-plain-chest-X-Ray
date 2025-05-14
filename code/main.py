@@ -16,12 +16,21 @@ def main():
             import tkinter as tk
             root = tk.Tk()
             converter = CTtoXrayConverter()
-            app = CTtoXrayUI(root,converter)
-            root.mainloop()
+            app = CTtoXrayUI(root, converter)
+
+            try:
+                root.mainloop()
+            except KeyboardInterrupt:
+                print("GUI interrupted by user")
             return 0
+
         except ImportError:
             print("Error: Tkinter not available. Run in CLI mode or install tkinter.")
             return 1
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print("Application exited.")
+        sys.exit(0)
