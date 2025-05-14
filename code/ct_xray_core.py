@@ -4,6 +4,8 @@ import numpy as np
 import SimpleITK as sitk
 from skimage import io, exposure
 from scipy.ndimage import gaussian_filter
+import xml.etree.ElementTree as ET
+from skimage.draw import polygon2mask
 
 
 class CTtoXrayConverter:
@@ -12,9 +14,11 @@ class CTtoXrayConverter:
     """
     def __init__(self):
         # Default parameters
+        self.ct_image_sitk = None;
         self.ct_image = None
         self.xray_image = None
         self.spacing = None
+        self.projected_nodule_mask = None
         self.params = {
             'projection_axis': 1,  # Default: y-axis (1)
             'mu_min': 0.0,  # Minimum attenuation coefficient
@@ -29,6 +33,7 @@ class CTtoXrayConverter:
         try:
             # Attempt to read with SimpleITK (handles DICOM, NIFTI, etc.)
             image = sitk.ReadImage(filepath)
+            self.ct_image_sitk = image
             self.ct_image = sitk.GetArrayFromImage(image)
             
             # Get spacing information if available
@@ -73,15 +78,91 @@ class CTtoXrayConverter:
             
             reader.SetFileNames(dicom_names)
             image = reader.Execute()
+
+            self.ct_image_sitk = image
             self.ct_image = sitk.GetArrayFromImage(image)
 
             # Extract voxel spacing
             self.spacing = image.GetSpacing()
+
+            # After loading CT images, load the annotation file from the same directory
+            self.load_annotation_from_ct_dir(directory)
             
             return True, f"Loaded DICOM series with {len(dicom_names)} files, shape {self.ct_image.shape}"
             
         except Exception as e:
             return False, f"Failed to load DICOM series: {str(e)}"
+    
+    def load_nodule_annotations(self, xml_path):
+        """Load nodule annotations from the XML file."""
+        self.nodule_annotations = {}  # Dictionary: {z_position: [list of (x, y) coords]}
+
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+
+        ns = {'ns': 'http://www.nih.gov'}  # Namespace for XML
+
+        for nodule in root.findall('.//ns:unblindedReadNodule', ns):
+            for roi in nodule.findall('ns:roi', ns):
+                included = roi.find('ns:inclusion', ns)
+                if included is not None and included.text.strip().upper() == "TRUE":
+                    z = float(roi.find('ns:imageZposition', ns).text)
+                    # Round z to 1 decimal place to match slice map keys
+                    z = round(z, 1)
+                    coords = []
+                    for edge in roi.findall('ns:edgeMap', ns):
+                        x = int(edge.find('ns:xCoord', ns).text)
+                        y = int(edge.find('ns:yCoord', ns).text)
+                        coords.append((y, x))
+                    if z not in self.nodule_annotations:
+                        self.nodule_annotations[z] = []
+                    self.nodule_annotations[z].append(coords)
+        
+        # Debug check
+        print(f"Parsed {len(self.nodule_annotations)} z-slices with annotations")
+        for z, polygons in self.nodule_annotations.items():
+            print(f"Z={z} has {len(polygons)} polygons")
+
+    def load_annotation_from_ct_dir(self, ct_directory):
+        xml_file = None
+        for f in os.listdir(ct_directory):
+            if f.lower().endswith('.xml'):
+                xml_file = os.path.join(ct_directory, f)
+                break
+
+        if xml_file:
+            self.load_nodule_annotations(xml_file)
+            print(f"XML file loaded")
+            print("CT image type:", type(self.ct_image))
+            self.map_z_positions_to_slices()
+            print(f"Mapping is successful!")
+
+        else:
+            print("No XML annotation file found in the directory.")
+
+    def map_z_positions_to_slices(self):
+        image = self.ct_image_sitk
+        spacing = image.GetSpacing()
+        origin = image.GetOrigin()
+        direction = image.GetDirection()
+        size = image.GetSize()
+
+        # Z-axis location for each slice
+        slice_locations = [
+            origin[2] + i * spacing[2] * direction[8]  # Z-axis index
+            for i in range(size[2])
+        ]
+
+        self.z_to_slice_map = {}
+        for z in self.nodule_annotations:
+            closest = min(range(len(slice_locations)), key=lambda i: abs(slice_locations[i] - z))
+            self.z_to_slice_map[z] = closest
+        
+        # Debugging steps
+        print(self.z_to_slice_map)
+        print(f"Spacing: {spacing}")
+        print(f"Origin: {origin}")
+        print(f"Direction: {direction}")
     
     def get_slice(self, slice_idx):
         """Get a specific slice from the CT volume"""
@@ -157,6 +238,31 @@ class CTtoXrayConverter:
             xray = 1 - xray
             
         return xray
+
+    def generate_nodule_mask_volume(self):
+        """Generate a 3D binary mask from parsed XML nodule annotations"""
+        if self.ct_image is None or not hasattr(self, 'nodule_annotations'):
+            return None
+
+        shape = self.ct_image.shape  # (Z, Y, X)
+        mask_volume = np.zeros(shape, dtype=np.uint8)
+
+        for z_value, polygons in self.nodule_annotations.items():
+            slice_idx = self.z_to_slice_map.get(z_value)
+            if slice_idx is None or slice_idx >= shape[0]:
+                continue
+
+            for coords in polygons:
+                if len(coords) < 3:
+                    continue
+                # mask = polygon2mask(
+                #     shape=(shape[1], shape[2]),  # (Y, X)
+                #     polygon=np.array(coords)
+                # )
+                mask = polygon2mask((shape[1], shape[2]), np.array(coords))
+                mask_volume[slice_idx] |= mask.astype(np.uint8)
+
+        return mask_volume
     
     def convert_to_xray(self):
         """Convert the CT volume to an X-ray-like projection using Beer-Lambert law"""
@@ -192,6 +298,13 @@ class CTtoXrayConverter:
             
             # Process the raw X-ray image for better visualization
             self.xray_image = self.process_xray_image(xray)
+
+            # Generate projected annotation mask
+            mask_volume = self.generate_nodule_mask_volume()
+            if mask_volume is not None:
+                self.projected_nodule_mask = np.max(mask_volume, axis=axis)
+            else:
+                self.projected_nodule_mask = None
             
             return True, "X-ray conversion complete"
         

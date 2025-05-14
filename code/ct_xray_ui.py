@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import os
 import threading
 import numpy as np
@@ -238,6 +239,45 @@ class CTtoXrayUI:
             self.ax1.imshow(display_data, cmap='gray')
             self.ax1.set_title(f"CT Slice {slice_idx}")
             self.ax1.axis('off')
+            
+            # Overlay annotations for nodules (if available for this slice)
+            if hasattr(self.converter, "z_to_slice_map") and hasattr(self.converter, "nodule_annotations"):
+                for z, idx in self.converter.z_to_slice_map.items():
+                    if idx == slice_idx:
+                        for coords in self.converter.nodule_annotations[z]:
+                            coords_array = np.array(coords)
+                            if np.any(np.isnan(coords_array)) or len(coords_array) < 3:
+                                continue  # Skip bad or incomplete polygons
+                            
+                            # Step 1: Convert to (x, y)
+                            coords_array = coords_array[:, ::-1]
+
+                            # Step 2: Sort polygon points by angle around centroid
+                            centroid = np.mean(coords_array, axis=0)
+                            angles = np.arctan2(coords_array[:,1] - centroid[1], coords_array[:,0] - centroid[0])
+                            sorted_indices = np.argsort(angles)
+                            sorted_coords = coords_array[sorted_indices]
+
+                            # Draw the polygon
+                            polygon = patches.Polygon(
+                                sorted_coords,
+                                closed=True,
+                                edgecolor='red',
+                                facecolor='none',
+                                linewidth=1.5
+                            )
+                            self.ax1.add_patch(polygon)
+                            
+                            # coords_array = coords_array[:, ::-1]  # Swap back to (x, y) for CT display
+                            # polygon = patches.Polygon(
+                            #     coords_array,
+                            #     closed=True,
+                            #     edgecolor='red',
+                            #     facecolor='none',  # Transparent fill
+                            #     linewidth=1.5
+                            # )
+                            # self.ax1.add_patch(polygon)
+            
             self.canvas.draw()
     
     def display_ct_image(self):
@@ -265,6 +305,18 @@ class CTtoXrayUI:
                 aspect_ratio = self.converter.spacing[2] / self.converter.spacing[1]  # y-spacing / z-spacing
 
             self.ax2.imshow(flipped_xray, cmap='gray', aspect=aspect_ratio)
+             
+            # Overlay projected nodule mask
+            if self.converter.projected_nodule_mask is not None:
+                flipped_mask = np.flipud(self.converter.projected_nodule_mask)
+
+                # Overlay with same aspect ratio as DRR
+                contour = self.ax2.contour(
+                    flipped_mask, 
+                    levels=[0.5], 
+                    colors='red', 
+                    linewidths=1.5
+                )
             self.ax2.set_title("X-ray Projection")
             self.ax2.axis('off')
             self.fig.tight_layout()
