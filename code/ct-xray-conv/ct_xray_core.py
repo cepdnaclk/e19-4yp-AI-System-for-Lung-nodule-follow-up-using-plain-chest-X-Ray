@@ -2,7 +2,7 @@ import os
 import glob
 import numpy as np
 import SimpleITK as sitk
-from skimage import io, exposure
+from skimage import io, exposure , transform
 from scipy.ndimage import gaussian_filter
 import xml.etree.ElementTree as ET
 from skimage.draw import polygon2mask
@@ -299,10 +299,43 @@ class CTtoXrayConverter:
             # Process the raw X-ray image for better visualization
             self.xray_image = self.process_xray_image(xray)
 
+            # --- FIX: Flip vertically ---
+            self.xray_image = np.flipud(self.xray_image)
+
+            # --- FIX: Adjust aspect ratio based on voxel spacing ---
+            if self.spacing is not None:
+                # For axis=1 (default, y-axis), output image shape is (Z, X)
+                # spacing[2] = Z spacing, spacing[1] = Y spacing, spacing[0] = X spacing
+                # For axis=1, image shape: (Z, X), so aspect = spacing[2] / spacing[0]
+                if axis == 1:
+                    aspect = self.spacing[2] / self.spacing[0]
+                    # Rescale y-axis (rows) to match aspect ratio
+                    output_shape = (
+                        int(self.xray_image.shape[0] * aspect),
+                        self.xray_image.shape[1]
+                    )
+                    self.xray_image = transform.resize(
+                        self.xray_image, output_shape, preserve_range=True, anti_aliasing=True
+                    )
+                # You can add similar logic for other axes if needed
+
+
             # Generate projected annotation mask
             mask_volume = self.generate_nodule_mask_volume()
             if mask_volume is not None:
                 self.projected_nodule_mask = np.max(mask_volume, axis=axis)
+                # --- Match orientation and aspect ratio to X-ray image ---
+                self.projected_nodule_mask = np.flipud(self.projected_nodule_mask)
+                if self.spacing is not None and axis == 1:
+                    aspect = self.spacing[2] / self.spacing[0]
+                    output_shape = (
+                        int(self.projected_nodule_mask.shape[0] * aspect),
+                        self.projected_nodule_mask.shape[1]
+                    )
+                    # Use order=0 for nearest-neighbor (preserves binary mask)
+                    self.projected_nodule_mask = transform.resize(
+                        self.projected_nodule_mask, output_shape, order=0, preserve_range=True, anti_aliasing=False
+                    ).astype(np.uint8)
             else:
                 self.projected_nodule_mask = None
             
@@ -317,9 +350,17 @@ class CTtoXrayConverter:
             return False, "No X-ray image to save"
         
         try:
-            # Convert to 8-bit for common image formats
+            # Save X-ray image as 8-bit grayscale
             xray_8bit = (self.xray_image * 255).astype(np.uint8)
             io.imsave(filepath, xray_8bit)
-            return True, f"Saved to {os.path.basename(filepath)}"
+
+            # Save mask as binary image (if available)
+            if self.projected_nodule_mask is not None:
+                mask_path = os.path.splitext(filepath)[0] + "_mask.png"
+                mask_bin = (self.projected_nodule_mask > 0).astype(np.uint8) * 255
+                io.imsave(mask_path, mask_bin)
+                return True, f"Saved X-ray to {os.path.basename(filepath)} and mask to {os.path.basename(mask_path)}"
+            else:
+                return True, f"Saved X-ray to {os.path.basename(filepath)} (no mask available)"
         except Exception as e:
             return False, f"Failed to save image: {str(e)}"

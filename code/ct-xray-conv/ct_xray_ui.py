@@ -296,23 +296,23 @@ class CTtoXrayUI:
         self.ax2.clear()
 
         if self.converter.xray_image is not None:
-            # Flip the X-ray image vertically
-            flipped_xray = np.flipud(self.converter.xray_image)
+            # # Flip the X-ray image vertically
+            # flipped_xray = np.flipud(self.converter.xray_image)
 
-            # Calculate aspect ratio based on voxel spacing
-            aspect_ratio = 1  # Default
-            if self.converter.spacing is not None:
-                aspect_ratio = self.converter.spacing[2] / self.converter.spacing[1]  # y-spacing / z-spacing
+            # # Calculate aspect ratio based on voxel spacing
+            # aspect_ratio = 1  # Default
+            # if self.converter.spacing is not None:
+            #     aspect_ratio = self.converter.spacing[2] / self.converter.spacing[1]  # y-spacing / z-spacing
 
-            self.ax2.imshow(flipped_xray, cmap='gray', aspect=aspect_ratio)
+            self.ax2.imshow(self.converter.xray_image, cmap='gray')
              
             # Overlay projected nodule mask
             if self.converter.projected_nodule_mask is not None:
-                flipped_mask = np.flipud(self.converter.projected_nodule_mask)
+                # flipped_mask = np.flipud(self.converter.projected_nodule_mask)
 
                 # Overlay with same aspect ratio as DRR
                 contour = self.ax2.contour(
-                    flipped_mask, 
+                    self.converter.projected_nodule_mask, 
                     levels=[0.5], 
                     colors='red', 
                     linewidths=1.5
