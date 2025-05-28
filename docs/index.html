@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AI System for Lung Nodule Follow-Up Using Plain Chest X-Rays</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #3b82f6;
+      --primary-dark: #1e40af;
+      --primary-light: #dbeafe;
+      --secondary: #10b981;
+      --accent: #f59e0b;
+      --text-primary: #1f2937;
+      --text-secondary: #6b7280;
+      --text-light: #9ca3af;
+      --bg-primary: #ffffff;
+      --bg-secondary: #f8fafc;
+      --bg-accent: #f1f5f9;
+      --border: #e5e7eb;
+      --shadow: rgba(0, 0, 0, 0.1);
+      --shadow-lg: rgba(0, 0, 0, 0.15);
+      --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --gradient-alt: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      scroll-behavior: smooth;
+    }
+
+    /* Hero Section */
+    .hero {
+      background: var(--gradient);
+      color: white;
+      padding: 4rem 2rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      min-height: 70vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"/></pattern></defs><rect width="100" height="100" fill="url(%23grid)"/></svg>');
+      opacity: 0.3;
+      animation: float 20s ease-in-out infinite;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      50% { transform: translateY(-20px) rotate(1deg); }
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.5rem, 5vw, 4rem);
+      font-weight: 700;
+      margin-bottom: 1.5rem;
+      background: linear-gradient(45deg, #fff, #e0e7ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: slideInUp 1s ease-out;
+    }
+
+    .hero p {
+      font-size: 1.25rem;
+      opacity: 0.9;
+      margin-bottom: 2rem;
+      animation: slideInUp 1s ease-out 0.2s both;
+    }
+
+    .hero-badge {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(10px);
+      padding: 0.5rem 1rem;
+      border-radius: 50px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      margin-bottom: 2rem;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      animation: slideInUp 1s ease-out 0.4s both;
+    }
+
+    @keyframes slideInUp {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* Navigation */
+    .nav-pills {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin: 2rem 0;
+      flex-wrap: wrap;
+    }
+
+    .nav-pill {
+      padding: 0.75rem 1.5rem;
+      background: var(--bg-primary);
+      border-radius: 50px;
+      text-decoration: none;
+      color: var(--text-primary);
+      font-weight: 500;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 10px var(--shadow);
+      border: 1px solid var(--border);
+    }
+
+    .nav-pill:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px var(--shadow-lg);
+      background: var(--primary);
+      color: white;
+    }
+
+    /* Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--bg-primary);
+      border-radius: 1rem;
+      padding: 2rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 4px 20px var(--shadow);
+      border: 1px solid var(--border);
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--gradient-alt);
+    }
+
+    .card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 12px 40px var(--shadow-lg);
+    }
+
+    .card h2 {
+      color: var(--primary);
+      font-size: 1.8rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .card h3 {
+      color: var(--primary-dark);
+      font-size: 1.3rem;
+      font-weight: 600;
+      margin: 1.5rem 0 1rem 0;
+    }
+
+    /* Team Section */
+    .team-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .team-member {
+      background: var(--bg-accent);
+      padding: 1.5rem;
+      border-radius: 0.75rem;
+      border: 1px solid var(--border);
+      transition: all 0.3s ease;
+    }
+
+    .team-member:hover {
+      background: var(--primary-light);
+      transform: translateY(-2px);
+    }
+
+    .team-member strong {
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    .team-member a {
+      color: var(--secondary);
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .team-member a:hover {
+      text-decoration: underline;
+    }
+
+    .supervisors {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+
+    .supervisor {
+      background: var(--bg-primary);
+      padding: 1rem 1.5rem;
+      border-radius: 0.5rem;
+      border-left: 4px solid var(--accent);
+      font-weight: 500;
+    }
+
+    /* Methodology */
+    .methodology-steps {
+      display: grid;
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      padding: 1.5rem;
+      background: var(--bg-accent);
+      border-radius: 0.75rem;
+      border: 1px solid var(--border);
+      transition: all 0.3s ease;
+    }
+
+    .step:hover {
+      background: var(--primary-light);
+      transform: translateX(5px);
+    }
+
+    .step-number {
+      background: var(--gradient-alt);
+      color: white;
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .step-content {
+      flex: 1;
+    }
+
+    .step-title {
+      font-weight: 600;
+      color: var(--primary-dark);
+      margin-bottom: 0.5rem;
+    }
+
+    /* System Overview Image */
+    .system-overview {
+      text-align: center;
+      margin: 2rem 0;
+      padding: 2rem;
+      background: var(--bg-accent);
+      border-radius: 1rem;
+      border: 2px dashed var(--border);
+    }
+
+    .system-overview img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 0.75rem;
+      box-shadow: 0 8px 32px var(--shadow);
+      transition: transform 0.3s ease;
+    }
+
+    .system-overview img:hover {
+      transform: scale(1.02);
+    }
+
+    /* Benefits Grid */
+    .benefits-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.5rem;
+      margin-top: 1.5rem;
+    }
+
+    .benefit-item {
+      background: var(--bg-primary);
+      padding: 1.5rem;
+      border-radius: 0.75rem;
+      text-align: center;
+      border: 1px solid var(--border);
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .benefit-item::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--gradient);
+    }
+
+    .benefit-item:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 12px 30px var(--shadow);
+    }
+
+    .benefit-icon {
+      width: 3rem;
+      height: 3rem;
+      background: var(--gradient);
+      border-radius: 50%;
+      margin: 0 auto 1rem auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+    }
+
+    /* Links Section */
+    .links-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .link-card {
+      background: var(--bg-primary);
+      padding: 1.5rem;
+      border-radius: 0.75rem;
+      text-align: center;
+      text-decoration: none;
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .link-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 100%;
+      background: var(--gradient);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .link-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 12px 30px var(--shadow);
+      color: white;
+    }
+
+    .link-card:hover::before {
+      opacity: 1;
+    }
+
+    .link-card-content {
+      position: relative;
+      z-index: 2;
+    }
+
+    /* Tech Stack */
+    .tech-stack {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .tech-tag {
+      background: var(--primary-light);
+      color: var(--primary-dark);
+      padding: 0.5rem 1rem;
+      border-radius: 50px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      border: 1px solid var(--primary);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero {
+        padding: 3rem 1rem;
+        min-height: 60vh;
+      }
+
+      .container {
+        padding: 0 1rem;
+      }
+
+      .card {
+        padding: 1.5rem;
+      }
+
+      .nav-pills {
+        gap: 0.5rem;
+      }
+
+      .nav-pill {
+        padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+      }
+
+      .supervisors {
+        flex-direction: column;
+        gap: 1rem;
+      }
+    }
+
+    /* Animations */
+    .fade-in {
+      animation: fadeIn 0.8s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* Status Badge */
+    .status-badge {
+      display: inline-block;
+      background: var(--accent);
+      color: white;
+      padding: 0.25rem 0.75rem;
+      border-radius: 50px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      margin-left: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <section class="hero">
+    <div class="hero-content">
+      <div class="hero-badge">Final Year Research Project</div>
+      <h1>AI System for Lung Nodule Follow-Up</h1>
+      <p>Making lung cancer screening more accessible and efficient with cutting-edge AI technology</p>
+      
+      <nav class="nav-pills">
+        <a href="#team" class="nav-pill">Team</a>
+        <a href="#abstract" class="nav-pill">Abstract</a>
+        <a href="#methodology" class="nav-pill">Methodology</a>
+        <a href="#outcomes" class="nav-pill">Outcomes</a>
+        <a href="#links" class="nav-pill">Resources</a>
+      </nav>
+    </div>
+  </section>
+
+  <div class="container">
+    <section id="team" class="card fade-in">
+      <h2>🎓 Research Team</h2>
+      <div class="team-grid">
+        <div class="team-member">
+          <strong>E/19/366</strong> – W.A.M.P. Senevirathne<br>
+          <a href="mailto:e19366@eng.pdn.ac.lk">e19366@eng.pdn.ac.lk</a>
+        </div>
+        <div class="team-member">
+          <strong>E/19/224</strong> – M.M.S.H. Madhurasinghe<br>
+          <a href="mailto:e19224@eng.pdn.ac.lk">e19224@eng.pdn.ac.lk</a>
+        </div>
+        <div class="team-member">
+          <strong>E/18/059</strong> – D.M. De Silva<br>
+          <a href="mailto:e18059@eng.pdn.ac.lk">e18059@eng.pdn.ac.lk</a>
+        </div>
+      </div>
+      
+      <h3>👨‍🏫 Supervisors</h3>
+      <div class="supervisors">
+        <div class="supervisor">Dr. Chathura Weerasinghe</div>
+        <div class="supervisor">Mr. B.A.K. Dissanayake</div>
+      </div>
+    </section>
+
+    <section id="abstract" class="card fade-in">
+      <h2>📋 Abstract</h2>
+      <p>
+        Lung nodules, potential early signs of lung cancer, are typically detected via CT scans, but their high cost and radiation exposure limit frequent use. Chest X-rays (CXRs) are more accessible but often miss small nodules, leading to delayed diagnoses.
+      </p>
+      <p>
+        <strong>This project develops an AI-powered system for detecting and tracking lung nodules using CXRs, reducing reliance on CT scans.</strong> It employs deep learning-based Computer-Aided Detection (CAD) techniques, utilizing Digitally Reconstructed Radiographs (DRRs) to train the AI model for enhanced detection and follow-up.
+      </p>
+      <p>
+        By integrating feature extraction, image registration, and deep learning, the system offers a reliable, automated solution for lung nodule monitoring. Validated against real-world datasets and radiologist interpretations, the AI system aims to improve early detection and tracking, aiding clinical decisions while minimizing unnecessary CT referrals.
+      </p>
+    </section>
+
+    <section class="card fade-in">
+      <h2>🔬 Related Works</h2>
+      <div class="benefits-grid">
+        <div class="benefit-item">
+          <div class="benefit-icon">⚠️</div>
+          <h4>Challenge Identified</h4>
+          <p>Early studies highlighted CXR limitations in detecting small nodules</p>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon">🧠</div>
+          <h4>AI Advancement</h4>
+          <p>Deep learning (CNNs, YOLOv4) significantly advanced automated detection</p>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon">🏥</div>
+          <h4>Clinical Integration</h4>
+          <p>AI models integrated into hospital PACS for real-time detection</p>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon">🌍</div>
+          <h4>Global Impact</h4>
+          <p>Making screening accessible in resource-limited settings</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="methodology" class="card fade-in">
+      <h2>⚙️ Methodology</h2>
+      
+      <div class="system-overview">
+        <img src="https://github.com/user-attachments/assets/37ef825a-db49-4ffc-a703-1908d9786455" alt="System Overview Diagram">
+        <p><em>Proposed Workflow</em></p>
+      </div>
+
+      <div class="methodology-steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <div class="step-title">Data Collection & Anonymization</div>
+            <p>Anonymize CT scans with nodules and corresponding CXRs using advanced privacy protection techniques.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <div class="step-title">DRR Generation</div>
+            <p>Convert CT volumes to Digitally Reconstructed Radiograph (DRR) images that mimic real X-rays.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <div class="step-title">Nodule Projection</div>
+            <p>Map annotated nodules from CT scans to DRRs for supervised learning and ground truth establishment.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <div class="step-title">AI Model Training</div>
+            <p>Train deep learning models (CNNs, YOLO) to detect and localize nodules with high accuracy.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">5</div>
+          <div class="step-content">
+            <div class="step-title">Follow-up Comparison</div>
+            <p>Align CXRs over time using image registration to detect changes in nodule size and position.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-number">6</div>
+          <div class="step-content">
+            <div class="step-title">Structured Reporting</div>
+            <p>Generate millimeter-scale, image-annotated reports for radiologists with clinical insights.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card fade-in">
+      <h2>💻 Implementation Details</h2>
+      
+      <h3>🔧 Technology Stack</h3>
+      <div class="tech-stack">
+        <span class="tech-tag">PyTorch</span>
+        <span class="tech-tag">TensorFlow</span>
+        <span class="tech-tag">SimpleITK</span>
+        <span class="tech-tag">MONAI</span>
+        <span class="tech-tag">OpenCV</span>
+        <span class="tech-tag">Docker</span>
+        <span class="tech-tag">FastAPI</span>
+        <span class="tech-tag">Python</span>
+      </div>
+
+      <h3>🖥️ Infrastructure</h3>
+      <p><strong>Cloud Computing:</strong> Google Colab Pro/Pro+, AWS EC2 with NVIDIA T4/A100 GPUs for high-performance training and inference.</p>
+      <p><strong>Local Development:</strong> Machines with ≥16GB RAM and NVIDIA GTX 1660+ for development and testing.</p>
+
+      <h3>📊 Datasets</h3>
+      <p><strong>CT Data:</strong> LIDC-IDRI, NLST datasets for comprehensive nodule annotations and ground truth.</p>
+      <p><strong>CXR Data:</strong> CheXpert, JSRT, VinDr-CXR datasets for diverse chest X-ray training data.</p>
+      <p><strong>Preprocessing:</strong> Images standardized to 512x512 pixels with DICOM anonymization using advanced deid techniques.</p>
+    </section>
+
+    <section id="outcomes" class="card fade-in">
+      <h2>🎯 Predicted Outcomes</h2>
+      
+      <div class="benefits-grid">
+        <div class="benefit-item">
+          <div class="benefit-icon">🎯</div>
+          <h4>Enhanced Detection</h4>
+          <p>Significantly reduced false negatives in nodule detection</p>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon">🔍</div>
+          <h4>Feature Optimization</h4>
+          <p>Advanced feature extraction to assist radiologists</p>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon">🏥</div>
+          <h4>Clinical Support</h4>
+          <p>Reliable AI system supporting radiologist decision-making</p>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon">💰</div>
+          <h4>Cost Reduction</h4>
+          <p>Lower follow-up costs through efficient screening</p>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon">☢️</div>
+          <h4>Safer Screening</h4>
+          <p>Reduced radiation exposure for patients</p>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon">🌐</div>
+          <h4>Global Access</h4>
+          <p>Improved accessibility in resource-limited settings</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card fade-in">
+      <h2>📝 Conclusion</h2>
+      <p>
+        Our research develops a groundbreaking AI-powered system for lung nodule detection and follow-up using chest X-rays, significantly enhancing accessibility while reducing reliance on expensive CT scans. By leveraging cutting-edge deep learning techniques and innovative DRR-based training methodologies, our system represents a major advancement in medical AI.
+      </p>
+      <p>
+        The system improves early detection accuracy, automates complex nodule tracking processes, and provides invaluable support to radiologists in clinical decision-making. This research contributes to making life-saving lung cancer screening more accessible, efficient, and cost-effective worldwide.
+      </p>
+    </section>
+
+    <section class="card fade-in">
+      <h2>📚 Publications</h2>
+      <div style="text-align: center; padding: 2rem; background: var(--bg-accent); border-radius: 0.75rem; border: 2px dashed var(--border);">
+        <p><em>This project has not yet resulted in any publications</em></p>
+        <!-- <span class="status-badge"></span> -->
+      </div>
+    </section>
+
+    <section id="links" class="card fade-in">
+      <h2>🔗 Resources & Links</h2>
+      <div class="links-grid">
+        <a href="https://github.com/cepdnaclk/repository-name" target="_blank" class="link-card">
+          <div class="link-card-content">
+            <h4>📂 Project Repository</h4>
+            <p>View source code and documentation</p>
+          </div>
+        </a>
+        <a href="https://cepdnaclk.github.io/repository-name" target="_blank" class="link-card">
+          <div class="link-card-content">
+            <h4>🌐 Project Page</h4>
+            <p>Detailed project information</p>
+          </div>
+        </a>
+        <a href="http://www.ce.pdn.ac.lk/" target="_blank" class="link-card">
+          <div class="link-card-content">
+            <h4>🏛️ Department</h4>
+            <p>Computer Engineering, UoP</p>
+          </div>
+        </a>
+        <a href="https://eng.pdn.ac.lk/" target="_blank" class="link-card">
+          <div class="link-card-content">
+            <h4>🎓 University</h4>
+            <p>University of Peradeniya</p>
+          </div>
+        </a>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // Smooth scrolling for navigation
+    document.querySelectorAll('.nav-pill').forEach(pill => {
+      pill.addEventListener('click', function(e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          });
+        }
+      });
+    });
+
+    // Intersection Observer for animations
+    const observerOptions = {
+      threshold: 0.1,
+      rootMargin: '0px 0px -50px 0px'
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.style.opacity = '1';
+          entry.target.style.transform = 'translateY(0)';
+        }
+      });
+    }, observerOptions);
+
+    // Observe all cards for animation
+    document.querySelectorAll('.card').forEach(card => {
+      card.style.opacity = '0';
+      card.style.transform = 'translateY(30px)';
+      card.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+      observer.observe(card);
+    });
+
+    // Add hover effects to team members
+    document.querySelectorAll('.team-member').forEach(member => {
+      member.addEventListener('mouseenter', function() {
+        this.style.transform = 'translateY(-5px) scale(1.02)';
+      });
+      
+      member.addEventListener('mouseleave', function() {
+        this.style.transform = 'translateY(0) scale(1)';
+      });
+    });
+  </script>
+</body>
+</html>
