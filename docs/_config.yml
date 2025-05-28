@@ -1,8 +1,5 @@
-# This theme is based on https://github.com/jekyll/minima
-# Please refer above link to know the available configurations
-
 title: ""
-remote_theme: jekyll-theme-hacker
+remote_theme: cepdnaclk/eYY-project-theme
 description: ""
 markdown: kramdown
 
