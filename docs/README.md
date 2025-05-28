@@ -9,7 +9,7 @@ title: AI System for Lung Nodule Follow-Up Using Plain Chest X-Rays
 
 [comment]: # "This is the standard layout for the project, but you can clean this and use your own template"
 
-# Project Title
+# AI System for Lung Nodule Follow-Up Using Plain Chest X-Rays
 
 #### Team
 
@@ -81,6 +81,7 @@ The experimental framework for this project is designed to evaluate the effectiv
   * **OpenCV** for general image preprocessing and transformations.
   * **Docker** and **FastAPI** for deployment and API integration.
   * **Matplotlib/Seaborn** for data visualization and report generation.
+ 
 
 * **Dataset Sources**:
 
