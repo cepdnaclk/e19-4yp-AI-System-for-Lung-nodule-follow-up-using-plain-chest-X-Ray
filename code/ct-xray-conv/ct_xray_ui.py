@@ -236,18 +236,27 @@ class CTtoXrayUI:
         
         display_data = self.converter.get_normalized_slice(slice_idx)
         if display_data is not None:
+            print("In display_data")
             self.ax1.imshow(display_data, cmap='gray')
             self.ax1.set_title(f"CT Slice {slice_idx}")
             self.ax1.axis('off')
             
             # Overlay annotations for nodules (if available for this slice)
             if hasattr(self.converter, "z_to_slice_map") and hasattr(self.converter, "nodule_annotations"):
+                print("Hi from if hasattr")
                 for z, idx in self.converter.z_to_slice_map.items():
+                    print("In for items() loop")
+                    print(idx)
                     if idx == slice_idx:
                         for coords in self.converter.nodule_annotations[z]:
                             coords_array = np.array(coords)
-                            if np.any(np.isnan(coords_array)) or len(coords_array) < 3:
-                                continue  # Skip bad or incomplete polygons
+                            print(coords_array)
+                            if np.any(np.isnan(coords_array)) or len(coords_array)<3 and len(coords_array) == 1:
+                                self.ax1.plot(coords_array[0][0], coords_array[0][1], 'ro')  # red dot
+                                continue
+
+                            # if np.any(np.isnan(coords_array)) or len(coords_array) < 3:
+                            #     continue  # Skip bad or incomplete polygons
                             
                             # Step 1: Convert to (x, y)
                             coords_array = coords_array[:, ::-1]
@@ -257,6 +266,7 @@ class CTtoXrayUI:
                             angles = np.arctan2(coords_array[:,1] - centroid[1], coords_array[:,0] - centroid[0])
                             sorted_indices = np.argsort(angles)
                             sorted_coords = coords_array[sorted_indices]
+                            print("Sorted coords: ",sorted_coords)
 
                             # Draw the polygon
                             polygon = patches.Polygon(
@@ -266,6 +276,7 @@ class CTtoXrayUI:
                                 facecolor='none',
                                 linewidth=1.5
                             )
+                            print(f"Annotation slices: {list(self.converter.z_to_slice_map.values())}")
                             self.ax1.add_patch(polygon)
                             
                             # coords_array = coords_array[:, ::-1]  # Swap back to (x, y) for CT display
