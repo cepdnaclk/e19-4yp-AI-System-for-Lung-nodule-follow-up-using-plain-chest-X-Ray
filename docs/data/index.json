@@ -1,0 +1,34 @@
+{
+    "team": [
+        {
+            "name": "De Silva D.M.",
+            "email": "e18059@eng.pdn.ac.lk",
+            "eNumber": "E/18/059"
+        },
+        {
+            "name": " Madhurasinghe M.M.S.H.",
+            "email": "e19224@eng.pdn.ac.lk",
+            "eNumber": "E/19/224"
+        },
+        {
+            "name": "Senevirathne W.A.M.P.",
+            "email": "e19366@eng.pdn.ac.lk",
+            "eNumber": "E/19/366"
+        }
+    ],
+    "supervisors": [
+        {
+            "name": "Mr. Biswajith Dissanayake",
+            "email": "biswajithd@eng.pdn.ac.lk"
+        },
+        {
+            "name": "Dr.Chathura Wirasinghe"
+        }
+    ],
+    "media": [
+        {
+            "url": "#"
+        }
+    ],
+    "tags": ["Final Year Projects", "AI"]
+}
