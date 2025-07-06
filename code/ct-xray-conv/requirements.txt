@@ -1,4 +1,0 @@
-numpy>=1.20.0
-matplotlib>=3.4.0
-scikit-image>=0.18.0
-SimpleITK>=2.1.0
