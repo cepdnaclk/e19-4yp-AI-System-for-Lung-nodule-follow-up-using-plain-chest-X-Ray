@@ -23,9 +23,10 @@ class ModelEvaluator:
     def __init__(self, model_path, config=None):
         self.config = config or Config()
         self.device = self.config.DEVICE
+        self.model_path = model_path
         
-        # Load model
-        self.model = self._load_model(model_path)
+        # Load model and threshold info
+        self.model, self.threshold_info = self._load_model(model_path)
         
         # Setup dataset
         self.test_dataset = DRRSegmentationDataset(
@@ -43,7 +44,7 @@ class ModelEvaluator:
         )
         
     def _load_model(self, model_path):
-        """Load the trained model."""
+        """Load the trained model and threshold info."""
         try:
             checkpoint = torch.load(model_path, map_location=self.device)
             
@@ -62,10 +63,18 @@ class ModelEvaluator:
             model.to(self.device)
             model.eval()
             
+            # Load threshold info
+            threshold_info = checkpoint.get('threshold_info', {
+                'optimal_threshold': self.config.INFERENCE_THRESHOLD,
+                'best_dice': 0.0,
+                'default_threshold': 0.5
+            })
+            
             logger.info(f"Model loaded successfully from {model_path}")
             logger.info(f"Model was trained for {checkpoint.get('epoch', 'unknown')} epochs")
+            logger.info(f"Optimal threshold: {threshold_info['optimal_threshold']:.4f}")
             
-            return model
+            return model, threshold_info
             
         except Exception as e:
             logger.error(f"Error loading model from {model_path}: {e}")
@@ -75,7 +84,11 @@ class ModelEvaluator:
         """Comprehensive model evaluation."""
         logger.info("Starting model evaluation...")
         
-        all_metrics = []
+        optimal_threshold = self.threshold_info['optimal_threshold']
+        logger.info(f"Using optimal threshold: {optimal_threshold:.4f}")
+        
+        all_metrics_default = []
+        all_metrics_optimal = []
         sample_predictions = []
         
         with torch.no_grad():
@@ -90,19 +103,26 @@ class ModelEvaluator:
                     # Forward pass
                     pred_mask = self.model(xray, drr)
                     
-                    # Calculate metrics
-                    metrics = calculate_metrics(pred_mask, mask, threshold=self.config.INFERENCE_THRESHOLD)
-                    metrics['filename'] = filename
-                    all_metrics.append(metrics)
+                    # Calculate metrics with default threshold
+                    metrics_default = calculate_metrics(pred_mask, mask, threshold=0.5)
+                    metrics_default['filename'] = filename
+                    all_metrics_default.append(metrics_default)
+                    
+                    # Calculate metrics with optimal threshold
+                    metrics_optimal = calculate_metrics(pred_mask, mask, threshold=optimal_threshold)
+                    metrics_optimal['filename'] = filename
+                    all_metrics_optimal.append(metrics_optimal)
                     
                     # Store some samples for visualization
                     if len(sample_predictions) < 20:
                         sample_predictions.append({
                             'xray': xray.cpu(),
                             'pred': pred_mask.cpu(),
+                            'pred_optimal': (pred_mask > optimal_threshold).float().cpu(),
                             'mask': mask.cpu(),
                             'filename': filename,
-                            'metrics': metrics
+                            'metrics_default': metrics_default,
+                            'metrics_optimal': metrics_optimal
                         })
                     
                 except Exception as e:
@@ -110,15 +130,24 @@ class ModelEvaluator:
                     continue
         
         # Aggregate metrics
-        aggregated_metrics = self._aggregate_metrics(all_metrics)
+        aggregated_metrics_default = self._aggregate_metrics(all_metrics_default)
+        aggregated_metrics_optimal = self._aggregate_metrics(all_metrics_optimal)
         
         # Print results
-        self._print_results(aggregated_metrics)
+        print("\n" + "="*60)
+        print("EVALUATION RESULTS WITH DEFAULT THRESHOLD (0.5)")
+        print("="*60)
+        self._print_results(aggregated_metrics_default)
+        
+        print("\n" + "="*60)
+        print(f"EVALUATION RESULTS WITH OPTIMAL THRESHOLD ({optimal_threshold:.4f})")
+        print("="*60)
+        self._print_results(aggregated_metrics_optimal)
         
         if save_results:
-            self._save_results(aggregated_metrics, sample_predictions)
+            self._save_results(aggregated_metrics_default, aggregated_metrics_optimal, sample_predictions)
         
-        return aggregated_metrics, sample_predictions
+        return aggregated_metrics_default, aggregated_metrics_optimal, sample_predictions
     
     def _aggregate_metrics(self, all_metrics):
         """Aggregate metrics across all samples."""
@@ -172,7 +201,7 @@ class ModelEvaluator:
         
         print("="*60)
     
-    def _save_results(self, metrics, sample_predictions):
+    def _save_results(self, metrics_default, metrics_optimal, sample_predictions):
         """Save evaluation results."""
         results_dir = self.config.RESULTS_DIR
         os.makedirs(results_dir, exist_ok=True)
@@ -182,16 +211,34 @@ class ModelEvaluator:
             f.write("Evaluation Results\n")
             f.write("="*50 + "\n\n")
             
-            if metrics:
-                f.write(f"Number of samples: {metrics['num_samples']}\n\n")
+            # Default threshold results
+            f.write("DEFAULT THRESHOLD (0.5) RESULTS:\n")
+            f.write("-" * 40 + "\n")
+            if metrics_default:
+                f.write(f"Number of samples: {metrics_default['num_samples']}\n\n")
                 
                 metric_names = ['dice', 'iou', 'precision', 'recall', 'f1']
                 for metric in metric_names:
                     f.write(f"{metric.upper()}:\n")
                     for stat in ['mean', 'std', 'median', 'min', 'max']:
                         key = f'{metric}_{stat}'
-                        if key in metrics:
-                            f.write(f"  {stat}: {metrics[key]:.4f}\n")
+                        if key in metrics_default:
+                            f.write(f"  {stat}: {metrics_default[key]:.4f}\n")
+                    f.write("\n")
+            
+            # Optimal threshold results
+            f.write(f"\nOPTIMAL THRESHOLD ({self.threshold_info['optimal_threshold']:.4f}) RESULTS:\n")
+            f.write("-" * 40 + "\n")
+            if metrics_optimal:
+                f.write(f"Number of samples: {metrics_optimal['num_samples']}\n\n")
+                
+                metric_names = ['dice', 'iou', 'precision', 'recall', 'f1']
+                for metric in metric_names:
+                    f.write(f"{metric.upper()}:\n")
+                    for stat in ['mean', 'std', 'median', 'min', 'max']:
+                        key = f'{metric}_{stat}'
+                        if key in metrics_optimal:
+                            f.write(f"  {stat}: {metrics_optimal[key]:.4f}\n")
                     f.write("\n")
         
         # Save sample predictions
@@ -202,11 +249,12 @@ class ModelEvaluator:
     
     def _save_sample_visualizations(self, sample_predictions, results_dir):
         """Save visualizations of sample predictions."""
-        # Create grid visualization
-        num_samples = min(16, len(sample_predictions))
+        # Create grid visualization for default threshold
+        num_samples = min(12, len(sample_predictions))
         cols = 4
         rows = (num_samples + cols - 1) // cols
         
+        # Default threshold visualization
         fig, axes = plt.subplots(rows * 3, cols, figsize=(20, 15))
         
         for i in range(num_samples):
@@ -219,17 +267,17 @@ class ModelEvaluator:
             axes[row_xray, col].set_title(f"X-ray\n{sample['filename']}", fontsize=8)
             axes[row_xray, col].axis('off')
             
-            # Prediction
+            # Prediction (default threshold)
             row_pred = row_xray + 1
             axes[row_pred, col].imshow(sample['pred'][0, 0].numpy(), cmap='hot', vmin=0, vmax=1)
-            dice_score = sample['metrics']['dice']
-            axes[row_pred, col].set_title(f"Prediction\nDice: {dice_score:.3f}", fontsize=8)
+            dice_score = sample['metrics_default']['dice']
+            axes[row_pred, col].set_title(f"Pred (0.5)\nDice: {dice_score:.3f}", fontsize=8)
             axes[row_pred, col].axis('off')
             
             # Ground truth
             row_gt = row_xray + 2
             axes[row_gt, col].imshow(sample['mask'][0, 0].numpy(), cmap='hot', vmin=0, vmax=1)
-            iou_score = sample['metrics']['iou']
+            iou_score = sample['metrics_default']['iou']
             axes[row_gt, col].set_title(f"Ground Truth\nIoU: {iou_score:.3f}", fontsize=8)
             axes[row_gt, col].axis('off')
         
@@ -238,24 +286,66 @@ class ModelEvaluator:
             for j in range(3):
                 row = (i // cols) * 3 + j
                 col = i % cols
-                axes[row, col].axis('off')
+                if row < axes.shape[0] and col < axes.shape[1]:
+                    axes[row, col].axis('off')
         
         plt.tight_layout()
-        plt.savefig(os.path.join(results_dir, 'sample_predictions.png'), 
+        plt.savefig(os.path.join(results_dir, 'sample_predictions_default.png'), 
+                   dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        # Optimal threshold visualization
+        fig, axes = plt.subplots(rows * 3, cols, figsize=(20, 15))
+        
+        for i in range(num_samples):
+            sample = sample_predictions[i]
+            col = i % cols
+            
+            # X-ray
+            row_xray = (i // cols) * 3
+            axes[row_xray, col].imshow(sample['xray'][0, 0].numpy(), cmap='gray')
+            axes[row_xray, col].set_title(f"X-ray\n{sample['filename']}", fontsize=8)
+            axes[row_xray, col].axis('off')
+            
+            # Prediction (optimal threshold)
+            row_pred = row_xray + 1
+            axes[row_pred, col].imshow(sample['pred_optimal'][0, 0].numpy(), cmap='hot', vmin=0, vmax=1)
+            dice_score = sample['metrics_optimal']['dice']
+            optimal_th = self.threshold_info['optimal_threshold']
+            axes[row_pred, col].set_title(f"Pred ({optimal_th:.2f})\nDice: {dice_score:.3f}", fontsize=8)
+            axes[row_pred, col].axis('off')
+            
+            # Ground truth
+            row_gt = row_xray + 2
+            axes[row_gt, col].imshow(sample['mask'][0, 0].numpy(), cmap='hot', vmin=0, vmax=1)
+            iou_score = sample['metrics_optimal']['iou']
+            axes[row_gt, col].set_title(f"Ground Truth\nIoU: {iou_score:.3f}", fontsize=8)
+            axes[row_gt, col].axis('off')
+        
+        # Hide unused subplots
+        for i in range(num_samples, rows * cols):
+            for j in range(3):
+                row = (i // cols) * 3 + j
+                col = i % cols
+                if row < axes.shape[0] and col < axes.shape[1]:
+                    axes[row, col].axis('off')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(results_dir, 'sample_predictions_optimal.png'), 
                    dpi=150, bbox_inches='tight')
         plt.close()
         
         # Save individual high-quality samples
-        best_samples = sorted(sample_predictions, key=lambda x: x['metrics']['dice'], reverse=True)[:5]
-        worst_samples = sorted(sample_predictions, key=lambda x: x['metrics']['dice'])[:5]
+        best_samples_default = sorted(sample_predictions, key=lambda x: x['metrics_default']['dice'], reverse=True)[:5]
+        best_samples_optimal = sorted(sample_predictions, key=lambda x: x['metrics_optimal']['dice'], reverse=True)[:5]
         
-        for i, sample in enumerate(best_samples):
-            self._save_individual_sample(sample, results_dir, f'best_sample_{i+1}')
+        for i, sample in enumerate(best_samples_default):
+            self._save_individual_sample(sample, results_dir, f'best_default_{i+1}', 'metrics_default', 'pred')
         
-        for i, sample in enumerate(worst_samples):
-            self._save_individual_sample(sample, results_dir, f'worst_sample_{i+1}')
+        for i, sample in enumerate(best_samples_optimal):
+            self._save_individual_sample(sample, results_dir, f'best_optimal_{i+1}', 'metrics_optimal', 'pred_optimal')
     
-    def _save_individual_sample(self, sample, results_dir, filename):
+    def _save_individual_sample(self, sample, results_dir, filename, metrics_key, pred_key):
         """Save individual sample visualization."""
         fig, axes = plt.subplots(1, 3, figsize=(15, 5))
         
@@ -265,13 +355,13 @@ class ModelEvaluator:
         axes[0].axis('off')
         
         # Prediction
-        axes[1].imshow(sample['pred'][0, 0].numpy(), cmap='hot', vmin=0, vmax=1)
-        axes[1].set_title(f"Prediction (Dice: {sample['metrics']['dice']:.3f})")
+        axes[1].imshow(sample[pred_key][0, 0].numpy(), cmap='hot', vmin=0, vmax=1)
+        axes[1].set_title(f"Prediction (Dice: {sample[metrics_key]['dice']:.3f})")
         axes[1].axis('off')
         
         # Ground truth
         axes[2].imshow(sample['mask'][0, 0].numpy(), cmap='hot', vmin=0, vmax=1)
-        axes[2].set_title(f"Ground Truth (IoU: {sample['metrics']['iou']:.3f})")
+        axes[2].set_title(f"Ground Truth (IoU: {sample[metrics_key]['iou']:.3f})")
         axes[2].axis('off')
         
         plt.suptitle(f"Sample: {sample['filename']}")
