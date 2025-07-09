@@ -9,7 +9,25 @@ from datetime import datetime
 
 from drr_dataset_loading import DRRSegmentationDataset
 from custom_model import XrayDRRSegmentationModel
-from util import dice_loss, show_prediction_vs_groundtruth, hybrid_loss, find_optimal_threshold, calculate_metrics
+from util import dice_loss, show_prediction_vs_groundtruth, calculate_metrics, find_optimal_threshold
+
+# Simplified loss function
+def combined_loss(pred, target, dice_weight=0.7, focal_weight=0.3):
+    """Simplified combined loss for better training."""
+    # Dice loss
+    pred_flat = pred.view(-1)
+    target_flat = target.view(-1)
+    intersection = (pred_flat * target_flat).sum()
+    dice = (2. * intersection + 1e-6) / (pred_flat.sum() + target_flat.sum() + 1e-6)
+    dice_loss_val = 1 - dice
+    
+    # Focal loss
+    bce_loss = F.binary_cross_entropy(pred, target, reduction='none')
+    pt = torch.exp(-bce_loss)
+    focal_loss_val = 0.25 * (1 - pt) ** 2 * bce_loss
+    focal_loss_val = focal_loss_val.mean()
+    
+    return dice_weight * dice_loss_val + focal_weight * focal_loss_val
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -26,13 +44,9 @@ def main():
         'batch_size': 4,
         'learning_rate': 1e-4,
         'num_epochs': 15,
-        'lambda_attn': 0.3,  # Reduced attention loss weight
-        'alpha': 0.5,
+        'alpha': 0.3,  # Reduced attention modulation
         'save_dir': './checkpoints',
         'device': torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-        'use_hybrid_loss': True,  # Use the new hybrid loss
-        'pos_weight': 15.0,  # Weight for positive pixels
-        'threshold_optimization': True  # Enable threshold optimization
     }
     
     # Create save directory
@@ -95,22 +109,15 @@ def main():
                 optimizer.zero_grad()
 
                 # Forward pass
-                seg_out = model(xray, drr)
+                seg_out, attn_map = model(xray, drr)
 
-                # Get attention map for attention loss
-                with torch.no_grad():
-                    attn_map = model.attention_net(drr)
-                    # Resize attention map to match mask size
-                    attn_map = F.interpolate(attn_map, size=mask.shape[2:], mode='bilinear', align_corners=False)
-
-                # Improved loss calculation
-                if config['use_hybrid_loss']:
-                    loss_task = hybrid_loss(seg_out, mask, pos_weight=config['pos_weight'])
-                else:
-                    loss_task = dice_loss(seg_out, mask)
+                # Simplified loss calculation
+                loss_task = combined_loss(seg_out, mask)
                 
-                loss_attn = F.binary_cross_entropy(attn_map, mask)
-                loss_total = loss_task + config['lambda_attn'] * loss_attn
+                # Light attention supervision
+                attn_resized = F.interpolate(attn_map, size=mask.shape[2:], mode='bilinear', align_corners=False)
+                loss_attn = F.binary_cross_entropy(attn_resized, mask)
+                loss_total = loss_task + 0.1 * loss_attn  # Reduced attention weight
 
                 # Backward and optimize
                 loss_total.backward()
@@ -142,18 +149,13 @@ def main():
                     drr = batch["drr"].to(config['device'])
                     mask = batch["mask"].to(config['device'])
 
-                    seg_out = model(xray, drr)
-                    attn_map = model.attention_net(drr)
-                    attn_map = F.interpolate(attn_map, size=mask.shape[2:], mode='bilinear', align_corners=False)
-
-                    # Use same loss as training
-                    if config['use_hybrid_loss']:
-                        loss_task = hybrid_loss(seg_out, mask, pos_weight=config['pos_weight'])
-                    else:
-                        loss_task = dice_loss(seg_out, mask)
+                    seg_out, attn_map = model(xray, drr)
                     
-                    loss_attn = F.binary_cross_entropy(attn_map, mask)
-                    loss_total = loss_task + config['lambda_attn'] * loss_attn
+                    # Calculate loss
+                    loss_task = combined_loss(seg_out, mask)
+                    attn_resized = F.interpolate(attn_map, size=mask.shape[2:], mode='bilinear', align_corners=False)
+                    loss_attn = F.binary_cross_entropy(attn_resized, mask)
+                    loss_total = loss_task + 0.1 * loss_attn
 
                     val_loss += loss_total.item()
                     val_batches += 1
@@ -195,75 +197,42 @@ def main():
     plt.savefig(os.path.join(config['save_dir'], 'training_curves.png'))
     plt.close()
     
-    # Threshold optimization
-    if config['threshold_optimization']:
-        logger.info("Optimizing threshold on validation set...")
-        model.eval()
-        all_preds = []
-        all_masks = []
-        
-        with torch.no_grad():
-            for batch in val_loader:
+    # Simple threshold optimization
+    logger.info("Optimizing threshold on validation set...")
+    model.eval()
+    all_preds = []
+    all_masks = []
+    
+    with torch.no_grad():
+        for batch in val_loader:
+            try:
                 xray = batch["xray"].to(config['device'])
                 drr = batch["drr"].to(config['device'])
                 mask = batch["mask"].to(config['device'])
                 
-                pred_mask = model(xray, drr)
+                pred_mask, _ = model(xray, drr)
                 all_preds.append(pred_mask.cpu())
                 all_masks.append(mask.cpu())
-        
-        # Concatenate all predictions and masks
+            except Exception as e:
+                logger.error(f"Error in optimization: {e}")
+                continue
+    
+    if all_preds:
         all_preds = torch.cat(all_preds, dim=0)
         all_masks = torch.cat(all_masks, dim=0)
         
-        # Find optimal threshold
         optimal_threshold, best_dice = find_optimal_threshold(all_preds, all_masks)
         logger.info(f"Optimal threshold: {optimal_threshold:.4f}, Best Dice: {best_dice:.4f}")
         
-        # Save threshold info
-        threshold_info = {
-            'optimal_threshold': optimal_threshold,
-            'best_dice': best_dice,
-            'default_threshold': 0.5
-        }
-        
-        # Update checkpoint with threshold info
-        checkpoint = torch.load(os.path.join(config['save_dir'], 'best_model.pth'))
-        checkpoint['threshold_info'] = threshold_info
-        torch.save(checkpoint, os.path.join(config['save_dir'], 'best_model.pth'))
-        
-        # Evaluate with optimal threshold
-        with torch.no_grad():
-            optimal_pred = (all_preds > optimal_threshold).float()
-            metrics = calculate_metrics(optimal_pred, all_masks, threshold=0.5)  # Already thresholded
-            logger.info(f"Metrics with optimal threshold - Dice: {metrics['dice']:.4f}, "
-                       f"IoU: {metrics['iou']:.4f}, Precision: {metrics['precision']:.4f}, "
-                       f"Recall: {metrics['recall']:.4f}")
+        # Update checkpoint
+        checkpoint_path = os.path.join(config['save_dir'], 'best_model.pth')
+        if os.path.exists(checkpoint_path):
+            checkpoint = torch.load(checkpoint_path)
+            checkpoint['optimal_threshold'] = optimal_threshold
+            checkpoint['best_dice'] = best_dice
+            torch.save(checkpoint, checkpoint_path)
     
-    # Test visualization with optimal threshold
-    model.eval()
-    with torch.no_grad():
-        test_batch = next(iter(val_loader))
-        xray = test_batch["xray"].to(config['device'])
-        drr = test_batch["drr"].to(config['device'])
-        mask = test_batch["mask"].to(config['device'])
-        
-        pred_mask = model(xray, drr)
-        
-        # Show both default and optimal threshold results
-        show_prediction_vs_groundtruth(xray, pred_mask, mask, num=min(4, len(xray)))
-        plt.savefig(os.path.join(config['save_dir'], 'predictions_default_threshold.png'))
-        plt.close()
-        
-        if config['threshold_optimization']:
-            # Load optimal threshold
-            checkpoint = torch.load(os.path.join(config['save_dir'], 'best_model.pth'))
-            optimal_threshold = checkpoint.get('threshold_info', {}).get('optimal_threshold', 0.5)
-            
-            pred_mask_optimal = (pred_mask > optimal_threshold).float()
-            show_prediction_vs_groundtruth(xray, pred_mask_optimal, mask, num=min(4, len(xray)))
-            plt.savefig(os.path.join(config['save_dir'], 'predictions_optimal_threshold.png'))
-            plt.close()
+    logger.info("Training completed!")
 
 if __name__ == "__main__":
     main()
