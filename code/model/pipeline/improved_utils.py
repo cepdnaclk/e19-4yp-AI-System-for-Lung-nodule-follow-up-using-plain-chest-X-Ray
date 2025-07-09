@@ -16,18 +16,30 @@ def dice_loss(pred, target, smooth=1e-6):
     
     return 1 - dice
 
-def focal_loss(pred, target, alpha=0.25, gamma=2.0):
-    """Focal loss for handling class imbalance."""
+def tversky_loss(pred, target, alpha=0.3, beta=0.7, smooth=1e-6):
+    """Tversky loss - better for imbalanced data."""
+    pred = pred.view(-1)
+    target = target.view(-1)
+    
+    tp = (pred * target).sum()
+    fp = (pred * (1 - target)).sum()
+    fn = ((1 - pred) * target).sum()
+    
+    tversky = (tp + smooth) / (tp + alpha * fp + beta * fn + smooth)
+    return 1 - tversky
+
+def focal_loss(pred, target, alpha=0.25, gamma=3.0):
+    """Enhanced focal loss for severe class imbalance."""
     bce_loss = F.binary_cross_entropy(pred, target, reduction='none')
     pt = torch.exp(-bce_loss)
     focal_loss = alpha * (1 - pt) ** gamma * bce_loss
     return focal_loss.mean()
 
-def combined_loss(pred, target, dice_weight=0.7, focal_weight=0.3):
-    """Simplified combined loss focusing on dice and focal."""
-    d_loss = dice_loss(pred, target)
-    f_loss = focal_loss(pred, target)
-    return dice_weight * d_loss + focal_weight * f_loss
+def aggressive_combined_loss(pred, target, tversky_weight=0.6, focal_weight=0.4):
+    """Aggressive loss for severe class imbalance in medical segmentation."""
+    t_loss = tversky_loss(pred, target, alpha=0.3, beta=0.7)  # Favor recall
+    f_loss = focal_loss(pred, target, alpha=0.25, gamma=3.0)  # Strong focus on hard examples
+    return tversky_weight * t_loss + focal_weight * f_loss
 
 def calculate_metrics(pred, target, threshold=0.5):
     """Calculate comprehensive metrics for evaluation."""
