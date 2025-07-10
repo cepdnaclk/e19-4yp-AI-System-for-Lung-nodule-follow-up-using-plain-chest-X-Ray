@@ -24,7 +24,15 @@ class SpatialAttentionModule(nn.Module):
         self.refine1 = nn.Conv2d(hidden_channels, hidden_channels // 2, kernel_size=3, padding=1)
         self.refine2 = nn.Conv2d(hidden_channels // 2, 1, kernel_size=1)
         
-        self.dropout = nn.Dropout2d(0.1)
+        # Final upsampling: 256x256 -> 512x512
+        self.up5 = nn.ConvTranspose2d(hidden_channels//4, hidden_channels//4, kernel_size=2, stride=2)
+        self.final = nn.Sequential(
+            nn.Conv2d(hidden_channels//4, 16, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(16, 1, kernel_size=1),
+            nn.Sigmoid()
+        )
         
     def forward(self, drr):
         # Multi-scale feature extraction
@@ -137,8 +145,8 @@ class ImprovedXrayDRRSegmentationModel(nn.Module):
             pretrained_model.model.layer4,
         )
         
-        # Freeze pretrained parameters
-        for param in self.feature_extractor.parameters():
+        # Partially freeze pretrained parameters (allow some adaptation)
+        for param in self.feature_extractor[:-1].parameters():
             param.requires_grad = False
 
         # Enhanced attention module using DRR
@@ -191,7 +199,7 @@ class ImprovedXrayDRRSegmentationModel(nn.Module):
         fused_feat = F.relu(self.fusion_bn2(self.fusion_conv2(fused_feat))) + modulated_feat
         
         # Generate segmentation mask
-        seg_out = self.segmentation_head(fused_feat)  # [B, 1, 512, 512]
+        seg_out = self.segmentation_head(modulated_feat)  # [B, 1, 512, 512]
         
         # Return both segmentation output and attention map for visualization
         return {
