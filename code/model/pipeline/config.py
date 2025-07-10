@@ -17,26 +17,28 @@ class Config:
     NORMALIZE_DATA = True
     
     # Model configuration
-    ALPHA = 0.5  # Attention modulation factor
+    ALPHA = 0.3  # Reduced attention modulation factor
     PRETRAINED_WEIGHTS = "resnet50-res512-all"
+    USE_CHANNEL_ATTENTION = True
     
     # Training configuration
-    LEARNING_RATE = 1e-4
-    NUM_EPOCHS = 20
-    LAMBDA_ATTN = 0.5  # Weight for attention loss
-    PATIENCE = 5  # Early stopping patience
+    LEARNING_RATE = 5e-5  # Reduced learning rate
+    NUM_EPOCHS = 25
+    LAMBDA_ATTN = 0.2  # Reduced weight for attention loss
+    PATIENCE = 7  # Increased early stopping patience
     
     # Loss configuration
-    DICE_WEIGHT = 0.6
-    FOCAL_WEIGHT = 0.4
+    DICE_WEIGHT = 0.4
+    FOCAL_WEIGHT = 0.6
     USE_FOCAL_LOSS = True
+    POS_WEIGHT = 20.0  # Increased positive weight for class imbalance
     
     # Optimization configuration
-    OPTIMIZER = 'adam'
+    OPTIMIZER = 'adamw'  # Changed to AdamW for better regularization
     SCHEDULER = 'reduce_on_plateau'
     SCHEDULER_FACTOR = 0.5
     SCHEDULER_PATIENCE = 3
-    WEIGHT_DECAY = 1e-5
+    WEIGHT_DECAY = 1e-4  # Increased weight decay
     
     # Hardware configuration
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -47,6 +49,25 @@ class Config:
     SAVE_DIR = './checkpoints'
     LOG_DIR = './logs'
     RESULTS_DIR = './results'
+    
+    # Evaluation configuration
+    THRESHOLD_OPTIMIZATION = True
+    VISUALIZATION_FREQUENCY = 5  # Visualize every N epochs
+    
+    # Data augmentation parameters
+    ROTATION_DEGREES = 15
+    BRIGHTNESS_FACTOR = 0.2
+    CONTRAST_FACTOR = 0.2
+    HORIZONTAL_FLIP_PROB = 0.5
+    
+    # Advanced training options
+    GRADIENT_CLIP_NORM = 1.0
+    MIXED_PRECISION = False  # Enable if you have modern GPU
+    
+    def __repr__(self):
+        """String representation of config."""
+        attrs = [f"{k}={v}" for k, v in self.__dict__.items() if not k.startswith('_')]
+        return f"Config({', '.join(attrs)})"
     
     # Logging configuration
     LOG_LEVEL = 'INFO'
