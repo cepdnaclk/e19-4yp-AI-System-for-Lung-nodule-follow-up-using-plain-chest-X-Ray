@@ -11,7 +11,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
 from evaluate import ModelEvaluator
-from config import Config
+from code.model.pipeline.config_ import Config
 
 def quick_evaluate(model_path):
     """Quick evaluation function."""

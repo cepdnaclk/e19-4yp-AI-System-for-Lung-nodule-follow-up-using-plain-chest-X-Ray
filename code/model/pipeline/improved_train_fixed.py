@@ -17,7 +17,9 @@ from custom_model import ImprovedXrayDRRSegmentationModel, XrayDRRSegmentationMo
 from util import (dice_loss, show_prediction_vs_groundtruth, hybrid_loss, 
                   find_optimal_threshold, calculate_metrics, focal_loss)
 from visualization import ModelVisualizer, visualize_dataset_statistics
-from config import Config
+
+# Import local config to avoid conflict with torchxrayvision's config
+from config_ import Config
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -146,7 +148,7 @@ class ImprovedTrainer:
             seg_loss = self.config.FOCAL_WEIGHT * focal_loss(pred, mask, alpha=1, gamma=2)
             seg_loss += self.config.DICE_WEIGHT * dice_loss(pred, mask)
         else:
-            seg_loss = hybrid_loss(pred, mask, pos_weight=15.0)
+            seg_loss = hybrid_loss(pred, mask, pos_weight=self.config.POS_WEIGHT)
         
         # Attention loss (if attention map is provided)
         if attention_map is not None:
@@ -190,7 +192,10 @@ class ImprovedTrainer:
                 total_loss.backward()
                 
                 # Gradient clipping
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                if hasattr(self.config, 'GRADIENT_CLIP_NORM'):
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.config.GRADIENT_CLIP_NORM)
+                else:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 
                 self.optimizer.step()
                 

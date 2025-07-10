@@ -13,7 +13,7 @@ from tqdm import tqdm
 from drr_dataset_loading import DRRSegmentationDataset
 from custom_model import XrayDRRSegmentationModel
 from util import calculate_metrics, show_prediction_vs_groundtruth
-from config import Config
+from code.model.pipeline.config_ import Config
 
 logger = logging.getLogger(__name__)
 
@@ -384,9 +384,9 @@ def main():
     
     # Setup configuration
     if args.config == 'dev':
-        from config import DevConfig as Config
+        from code.model.pipeline.config_ import DevConfig as Config
     else:
-        from config import ProdConfig as Config
+        from code.model.pipeline.config_ import ProdConfig as Config
     
     Config.create_directories()
     
