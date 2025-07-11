@@ -109,13 +109,25 @@ def main():
                 optimizer.zero_grad()
 
                 # Forward pass
-                seg_out, attn_map = model(xray, drr)
+                result = model(xray, drr)
+                
+                # Handle different model return types
+                if isinstance(result, dict):
+                    seg_out = result['segmentation']
+                    attn_map = result.get('attention', None)
+                else:
+                    seg_out = result
+                    attn_map = None
 
                 # Simplified loss calculation
                 loss_task = combined_loss(seg_out, mask)
                 
-                # Light attention supervision
-                attn_resized = F.interpolate(attn_map, size=mask.shape[2:], mode='bilinear', align_corners=False)
+                # Light attention supervision (only if attention map is available)
+                if attn_map is not None:
+                    attn_resized = F.interpolate(attn_map, size=mask.shape[2:], mode='bilinear', align_corners=False)
+                    loss_attn = F.binary_cross_entropy(attn_resized, mask)
+                else:
+                    loss_attn = 0.0
                 loss_attn = F.binary_cross_entropy(attn_resized, mask)
                 loss_total = loss_task + 0.1 * loss_attn  # Reduced attention weight
 
@@ -149,12 +161,23 @@ def main():
                     drr = batch["drr"].to(config['device'])
                     mask = batch["mask"].to(config['device'])
 
-                    seg_out, attn_map = model(xray, drr)
+                    result = model(xray, drr)
+                    
+                    # Handle different model return types
+                    if isinstance(result, dict):
+                        seg_out = result['segmentation']
+                        attn_map = result.get('attention', None)
+                    else:
+                        seg_out = result
+                        attn_map = None
                     
                     # Calculate loss
                     loss_task = combined_loss(seg_out, mask)
-                    attn_resized = F.interpolate(attn_map, size=mask.shape[2:], mode='bilinear', align_corners=False)
-                    loss_attn = F.binary_cross_entropy(attn_resized, mask)
+                    if attn_map is not None:
+                        attn_resized = F.interpolate(attn_map, size=mask.shape[2:], mode='bilinear', align_corners=False)
+                        loss_attn = F.binary_cross_entropy(attn_resized, mask)
+                    else:
+                        loss_attn = 0.0
                     loss_total = loss_task + 0.1 * loss_attn
 
                     val_loss += loss_total.item()
