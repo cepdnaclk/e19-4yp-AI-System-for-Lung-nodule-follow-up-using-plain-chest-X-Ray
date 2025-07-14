@@ -17,21 +17,26 @@ class Config:
     NORMALIZE_DATA = True
     
     # Model configuration
-    ALPHA = 0.3  # Reduced attention modulation factor
+    ALPHA = 0.2  # Reduced attention modulation factor for stability
     PRETRAINED_WEIGHTS = "resnet50-res512-all"
     USE_CHANNEL_ATTENTION = True
+    USE_MULTISCALE_ATTENTION = True  # New: Enable multi-scale attention
     
     # Training configuration
-    LEARNING_RATE = 5e-5  # Reduced learning rate
-    NUM_EPOCHS = 25
-    LAMBDA_ATTN = 0.2  # Reduced weight for attention loss
-    PATIENCE = 7  # Increased early stopping patience
+    LEARNING_RATE = 2e-5  # Further reduced learning rate for stability
+    BACKBONE_LEARNING_RATE = 5e-6  # Differential learning rate for backbone
+    NUM_EPOCHS = 30  # Increased epochs for better convergence
+    LAMBDA_ATTN = 0.1  # Further reduced weight for attention loss
+    PATIENCE = 10  # Increased early stopping patience
     
-    # Loss configuration
-    DICE_WEIGHT = 0.4
-    FOCAL_WEIGHT = 0.6
-    USE_FOCAL_LOSS = True
-    POS_WEIGHT = 20.0  # Increased positive weight for class imbalance
+    # Improved Loss configuration
+    LOSS_TYPE = 'combined'  # Use the new combined medical loss
+    TVERSKY_WEIGHT = 0.4
+    FOCAL_WEIGHT = 0.3
+    BCE_WEIGHT = 0.3
+    TVERSKY_ALPHA = 0.3  # Lower alpha focuses more on recall
+    TVERSKY_BETA = 0.7   # Higher beta penalizes false negatives more
+    POS_WEIGHT_MULTIPLIER = 100.0  # Increased from 20 to 100 for extreme class imbalance
     
     # Optimization configuration
     OPTIMIZER = 'adamw'  # Changed to AdamW for better regularization

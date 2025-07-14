@@ -25,20 +25,35 @@ class ModelVisualizer:
     def visualize_attention_mechanism(self, xray, drr, mask, save_path=None):
         """Visualize how the attention mechanism works."""
         with torch.no_grad():
-            # Get model outputs
-            if hasattr(self.model, 'spatial_attention'):
-                # New model with detailed outputs
+            # Get model outputs - improved compatibility
+            try:
                 result = self.model(xray, drr)
+                
                 if isinstance(result, dict):
+                    # New ImprovedXrayDRRSegmentationModel
                     pred_mask = result['segmentation']
-                    attention_map = result['attention']
+                    attention_map = result.get('attention', None)
+                    
+                    if attention_map is None:
+                        # Fallback: generate attention separately
+                        attention_map = self.model.spatial_attention(drr)
                 else:
+                    # Old model or backward compatibility
                     pred_mask = result
-                    attention_map = self.model.spatial_attention(drr)
-            else:
-                # Old model
-                pred_mask = self.model(xray, drr)
-                attention_map = self.model.attention_net(drr)
+                    
+                    # Try different attribute names for attention
+                    if hasattr(self.model, 'spatial_attention'):
+                        attention_map = self.model.spatial_attention(drr)
+                    elif hasattr(self.model, 'attention_net'):
+                        attention_map = self.model.attention_net(drr)
+                    else:
+                        # Create dummy attention map if none available
+                        attention_map = torch.ones_like(drr) * 0.5
+                        print("⚠️ Warning: No attention mechanism found, using dummy attention map")
+                        
+            except Exception as e:
+                print(f"❌ Error getting model outputs: {e}")
+                return
         
         # Convert to numpy
         xray_np = xray[0, 0].cpu().numpy()
@@ -47,42 +62,53 @@ class ModelVisualizer:
         pred_np = pred_mask[0, 0].cpu().numpy()
         attn_np = attention_map[0, 0].cpu().numpy()
         
-        # Create visualization
+        # Create visualization with improved layout
         fig, axes = plt.subplots(2, 3, figsize=(18, 12))
         
         # Original X-ray
         axes[0, 0].imshow(xray_np, cmap='gray')
-        axes[0, 0].set_title('Input X-ray', fontsize=14)
+        axes[0, 0].set_title('Input X-ray', fontsize=14, fontweight='bold')
         axes[0, 0].axis('off')
         
         # DRR input
         axes[0, 1].imshow(drr_np, cmap='gray')
-        axes[0, 1].set_title('DRR Input', fontsize=14)
+        axes[0, 1].set_title('DRR Input (Attention Source)', fontsize=14, fontweight='bold')
         axes[0, 1].axis('off')
         
-        # Attention map
-        axes[0, 2].imshow(attn_np, cmap='hot', vmin=0, vmax=1)
-        axes[0, 2].set_title('Attention Map', fontsize=14)
+        # Attention map with colorbar
+        im_attn = axes[0, 2].imshow(attn_np, cmap='hot', vmin=0, vmax=1)
+        axes[0, 2].set_title('Generated Attention Map', fontsize=14, fontweight='bold')
         axes[0, 2].axis('off')
+        plt.colorbar(im_attn, ax=axes[0, 2], fraction=0.046, pad=0.04)
         
         # Ground truth
         axes[1, 0].imshow(mask_np, cmap='hot', vmin=0, vmax=1)
-        axes[1, 0].set_title('Ground Truth', fontsize=14)
+        axes[1, 0].set_title('Ground Truth Mask', fontsize=14, fontweight='bold')
         axes[1, 0].axis('off')
         
-        # Prediction
-        axes[1, 1].imshow(pred_np, cmap='hot', vmin=0, vmax=1)
-        axes[1, 1].set_title('Prediction (Raw)', fontsize=14)
+        # Prediction with threshold line
+        im_pred = axes[1, 1].imshow(pred_np, cmap='hot', vmin=0, vmax=1)
+        axes[1, 1].set_title('Model Prediction (Raw)', fontsize=14, fontweight='bold')
         axes[1, 1].axis('off')
+        plt.colorbar(im_pred, ax=axes[1, 1], fraction=0.046, pad=0.04)
         
-        # Overlay attention on X-ray
+        # Overlay attention on X-ray with better blending
         overlay = np.stack([xray_np, xray_np, xray_np], axis=-1)
-        overlay = (overlay - overlay.min()) / (overlay.max() - overlay.min())
+        overlay = (overlay - overlay.min()) / (overlay.max() - overlay.min() + 1e-8)
         attn_colored = plt.cm.hot(attn_np)[:, :, :3]
-        overlay = 0.7 * overlay + 0.3 * attn_colored
+        # Better blending: more X-ray, less attention for clarity
+        overlay = 0.8 * overlay + 0.2 * attn_colored
         axes[1, 2].imshow(overlay)
-        axes[1, 2].set_title('X-ray + Attention Overlay', fontsize=14)
+        axes[1, 2].set_title('X-ray + Attention Overlay', fontsize=14, fontweight='bold')
         axes[1, 2].axis('off')
+        
+        # Add metrics as text
+        pred_binary = (pred_np > 0.5).astype(float)
+        intersection = (pred_binary * mask_np).sum()
+        dice = (2 * intersection) / (pred_binary.sum() + mask_np.sum() + 1e-8)
+        
+        fig.suptitle(f'Attention Mechanism Analysis (Dice Score: {dice:.3f})', 
+                    fontsize=16, fontweight='bold', y=0.95)
         
         plt.tight_layout()
         
@@ -115,12 +141,16 @@ class ModelVisualizer:
                 drr = batch["drr"].to(self.device)
                 mask = batch["mask"].to(self.device)
                 
-                # Get predictions
-                if hasattr(self.model, 'spatial_attention'):
+                # Get predictions with improved compatibility
+                try:
                     result = self.model(xray, drr)
-                    pred_mask = result['segmentation'] if isinstance(result, dict) else result
-                else:
-                    pred_mask = self.model(xray, drr)
+                    if isinstance(result, dict):
+                        pred_mask = result['segmentation']
+                    else:
+                        pred_mask = result
+                except Exception as e:
+                    logger.warning(f"Error getting predictions for batch {batch_idx}: {e}")
+                    continue
                 
                 for i in range(min(xray.shape[0], num_samples - samples_analyzed)):
                     # Calculate metrics
@@ -257,11 +287,16 @@ class ModelVisualizer:
                 drr = batch["drr"].to(self.device)
                 mask = batch["mask"].to(self.device)
                 
-                if hasattr(self.model, 'spatial_attention'):
+                # Get predictions with improved compatibility
+                try:
                     result = self.model(xray, drr)
-                    pred_mask = result['segmentation'] if isinstance(result, dict) else result
-                else:
-                    pred_mask = self.model(xray, drr)
+                    if isinstance(result, dict):
+                        pred_mask = result['segmentation']
+                    else:
+                        pred_mask = result
+                except Exception as e:
+                    logger.warning(f"Error getting predictions: {e}")
+                    continue
                 
                 all_preds.append(pred_mask.cpu())
                 all_masks.append(mask.cpu())
