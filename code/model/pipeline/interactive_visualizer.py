@@ -16,8 +16,16 @@ def show_dataset_info():
     """Show information about the dataset."""
     config = SmallDatasetConfig()
     
-    # Load dataset to get info
+    # Load both datasets to get info
     try:
+        train_dataset = DRRDataset(
+            data_root=config.DATA_ROOT,
+            image_size=config.IMAGE_SIZE,
+            training=True,
+            augment=False,
+            normalize=config.NORMALIZE_DATA
+        )
+        
         val_dataset = DRRDataset(
             data_root=config.DATA_ROOT,
             image_size=config.IMAGE_SIZE,
@@ -27,16 +35,17 @@ def show_dataset_info():
         )
         
         print(f"Dataset Information:")
-        print(f"  - Validation samples: {len(val_dataset)}")
+        print(f"  - Training samples: {len(train_dataset)} (indices: 0 to {len(train_dataset)-1})")
+        print(f"  - Validation samples: {len(val_dataset)} (indices: 0 to {len(val_dataset)-1})")
+        print(f"  - Total samples: {len(train_dataset) + len(val_dataset)}")
         print(f"  - Image size: {config.IMAGE_SIZE}")
         print(f"  - Data root: {config.DATA_ROOT}")
-        print(f"  - Available sample indices: 0 to {len(val_dataset)-1}")
         
-        return len(val_dataset)
+        return len(train_dataset), len(val_dataset)
         
     except Exception as e:
         print(f"Error loading dataset: {e}")
-        return 0
+        return 0, 0
 
 
 def interactive_mode():
@@ -46,8 +55,8 @@ def interactive_mode():
     print("="*60)
     
     # Show dataset info
-    max_samples = show_dataset_info()
-    if max_samples == 0:
+    train_samples, val_samples = show_dataset_info()
+    if train_samples == 0 and val_samples == 0:
         print("Cannot load dataset. Exiting.")
         return
     
@@ -75,14 +84,31 @@ def interactive_mode():
         if choice == '1':
             # Single sample visualization
             try:
-                sample_idx = int(input(f"Enter sample index (0-{max_samples-1}): "))
+                print("\nChoose dataset:")
+                print("  1. Training set")
+                print("  2. Validation set")
+                dataset_choice = input("Enter choice (1-2): ").strip()
+                
+                if dataset_choice == '1':
+                    from_training = True
+                    max_samples = train_samples
+                    dataset_name = "training"
+                elif dataset_choice == '2':
+                    from_training = False
+                    max_samples = val_samples
+                    dataset_name = "validation"
+                else:
+                    print("Invalid choice. Please enter 1 or 2.")
+                    continue
+                
+                sample_idx = int(input(f"Enter sample index from {dataset_name} set (0-{max_samples-1}): "))
                 if 0 <= sample_idx < max_samples:
                     output_dir = input("Output directory (default: 'sample_visualizations'): ").strip()
                     if not output_dir:
                         output_dir = 'sample_visualizations'
                     
-                    print(f"\nGenerating visualizations for sample {sample_idx}...")
-                    visualize_specific_sample(sample_idx, output_dir)
+                    print(f"\nGenerating visualizations for sample {sample_idx} from {dataset_name} set...")
+                    visualize_specific_sample(sample_idx, output_dir, from_training)
                     
                 else:
                     print(f"Invalid sample index. Must be between 0 and {max_samples-1}")
@@ -94,7 +120,24 @@ def interactive_mode():
         elif choice == '2':
             # Multiple samples
             try:
-                samples_input = input(f"Enter sample indices separated by commas (e.g., 0,5,10): ").strip()
+                print("\nChoose dataset:")
+                print("  1. Training set")
+                print("  2. Validation set")
+                dataset_choice = input("Enter choice (1-2): ").strip()
+                
+                if dataset_choice == '1':
+                    from_training = True
+                    max_samples = train_samples
+                    dataset_name = "training"
+                elif dataset_choice == '2':
+                    from_training = False
+                    max_samples = val_samples
+                    dataset_name = "validation"
+                else:
+                    print("Invalid choice. Please enter 1 or 2.")
+                    continue
+                
+                samples_input = input(f"Enter sample indices from {dataset_name} set separated by commas (e.g., 0,5,10): ").strip()
                 sample_indices = [int(x.strip()) for x in samples_input.split(',')]
                 
                 # Validate indices
@@ -107,10 +150,10 @@ def interactive_mode():
                 if not output_dir:
                     output_dir = 'multi_sample_visualizations'
                 
-                print(f"\nGenerating visualizations for samples {sample_indices}...")
+                print(f"\nGenerating visualizations for samples {sample_indices} from {dataset_name} set...")
                 for idx in sample_indices:
                     print(f"Processing sample {idx}...")
-                    visualize_specific_sample(idx, output_dir)
+                    visualize_specific_sample(idx, output_dir, from_training)
                 
                 print(f"✓ All visualizations saved to {output_dir}/")
                 
@@ -122,8 +165,25 @@ def interactive_mode():
         elif choice == '3':
             # Side-by-side comparison
             try:
+                print("\nChoose dataset:")
+                print("  1. Training set")
+                print("  2. Validation set")
+                dataset_choice = input("Enter choice (1-2): ").strip()
+                
+                if dataset_choice == '1':
+                    from_training = True
+                    max_samples = train_samples
+                    dataset_name = "training"
+                elif dataset_choice == '2':
+                    from_training = False
+                    max_samples = val_samples
+                    dataset_name = "validation"
+                else:
+                    print("Invalid choice. Please enter 1 or 2.")
+                    continue
+                
                 num_samples = int(input("Number of samples to compare (default: 5): ") or "5")
-                start_idx = int(input(f"Starting sample index (default: 0): ") or "0")
+                start_idx = int(input(f"Starting sample index from {dataset_name} set (default: 0): ") or "0")
                 
                 if start_idx + num_samples > max_samples:
                     print(f"Not enough samples. Maximum starting index: {max_samples - num_samples}")
@@ -133,7 +193,7 @@ def interactive_mode():
                 if not output_dir:
                     output_dir = 'comparison_visualizations'
                 
-                print(f"\nCreating comparison of samples {start_idx} to {start_idx + num_samples - 1}...")
+                print(f"\nCreating comparison of samples {start_idx} to {start_idx + num_samples - 1} from {dataset_name} set...")
                 
                 # Create visualizer and comparison
                 config = SmallDatasetConfig()
@@ -151,11 +211,12 @@ def interactive_mode():
                 visualizer = ModelInternalVisualizer(model_path, config)
                 os.makedirs(output_dir, exist_ok=True)
                 
-                # Create custom comparison for specific range
-                visualizer.compare_multiple_samples_range(
+                # Create custom comparison for specific range from specified dataset
+                visualizer.compare_multiple_samples_range_dataset(
                     start_idx=start_idx, 
                     num_samples=num_samples, 
-                    save_dir=output_dir
+                    save_dir=output_dir,
+                    from_training=from_training
                 )
                 
                 print(f"✓ Comparison visualization saved to {output_dir}/")

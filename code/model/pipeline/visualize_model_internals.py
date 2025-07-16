@@ -82,28 +82,44 @@ class ModelInternalVisualizer:
         self.model.spatial_attention.register_forward_hook(get_activation('spatial_attention'))
         self.model.segmentation_head.register_forward_hook(get_activation('segmentation_output'))
     
-    def visualize_sample(self, sample_idx=0, save_dir='visualizations'):
+    def visualize_sample(self, sample_idx=0, save_dir='visualizations', from_training=False):
         """Visualize a single sample through the entire pipeline."""
         
         # Create save directory
         os.makedirs(save_dir, exist_ok=True)
         
-        # Load dataset
-        val_dataset = DRRDataset(
-            data_root=self.config.DATA_ROOT,
-            image_size=self.config.IMAGE_SIZE,
-            training=False,
-            augment=False,
-            normalize=self.config.NORMALIZE_DATA
-        )
+        # Load dataset (training or validation)
+        if from_training:
+            dataset = DRRDataset(
+                data_root=self.config.DATA_ROOT,
+                image_size=self.config.IMAGE_SIZE,
+                training=True,
+                augment=False,  # No augmentation for visualization
+                normalize=self.config.NORMALIZE_DATA
+            )
+            dataset_type = "training"
+        else:
+            dataset = DRRDataset(
+                data_root=self.config.DATA_ROOT,
+                image_size=self.config.IMAGE_SIZE,
+                training=False,
+                augment=False,
+                normalize=self.config.NORMALIZE_DATA
+            )
+            dataset_type = "validation"
+        
+        print(f"Dataset: {dataset_type} set with {len(dataset)} samples")
+        
+        if sample_idx >= len(dataset):
+            raise ValueError(f"Sample index {sample_idx} is out of range. {dataset_type.capitalize()} set has {len(dataset)} samples (0-{len(dataset)-1})")
         
         # Get sample
-        xray, drr, mask = val_dataset[sample_idx]
+        xray, drr, mask = dataset[sample_idx]
         xray = xray.unsqueeze(0).to(self.device)  # Add batch dimension
         drr = drr.unsqueeze(0).to(self.device)
         mask = mask.unsqueeze(0).to(self.device)
         
-        print(f"Visualizing sample {sample_idx}")
+        print(f"Visualizing sample {sample_idx} from {dataset_type} set")
         print(f"Input shapes - X-ray: {xray.shape}, DRR: {drr.shape}, Mask: {mask.shape}")
         
         # Forward pass
@@ -116,22 +132,22 @@ class ModelInternalVisualizer:
         # Create comprehensive visualization
         self._create_comprehensive_visualization(
             xray, drr, mask, segmentation, attention, 
-            save_dir, sample_idx
+            save_dir, sample_idx, dataset_type
         )
         
         # Create feature map visualizations
-        self._visualize_feature_maps(save_dir, sample_idx)
+        self._visualize_feature_maps(save_dir, sample_idx, dataset_type)
         
         # Create attention analysis
-        self._visualize_attention_analysis(xray, drr, attention, save_dir, sample_idx)
+        self._visualize_attention_analysis(xray, drr, attention, save_dir, sample_idx, dataset_type)
         
         print(f"Visualizations saved to {save_dir}/")
     
-    def _create_comprehensive_visualization(self, xray, drr, mask, segmentation, attention, save_dir, sample_idx):
+    def _create_comprehensive_visualization(self, xray, drr, mask, segmentation, attention, save_dir, sample_idx, dataset_type="validation"):
         """Create main overview visualization."""
         
         fig, axes = plt.subplots(2, 4, figsize=(20, 10))
-        fig.suptitle(f'Model Pipeline Overview - Sample {sample_idx}', fontsize=16)
+        fig.suptitle(f'Model Pipeline Overview - Sample {sample_idx} ({dataset_type} set)', fontsize=16)
         
         # Convert tensors to numpy for visualization
         xray_np = self._tensor_to_numpy(xray)
@@ -196,11 +212,11 @@ class ModelInternalVisualizer:
         axes[1, 3].axis('off')
         
         plt.tight_layout()
-        plt.savefig(os.path.join(save_dir, f'overview_sample_{sample_idx}.png'), 
+        plt.savefig(os.path.join(save_dir, f'overview_sample_{sample_idx}_{dataset_type}.png'), 
                    dpi=300, bbox_inches='tight')
         plt.close()
     
-    def _visualize_feature_maps(self, save_dir, sample_idx):
+    def _visualize_feature_maps(self, save_dir, sample_idx, dataset_type="validation"):
         """Create detailed feature map visualizations."""
         
         feature_types = [
@@ -225,7 +241,7 @@ class ModelInternalVisualizer:
             rows = (num_channels + cols - 1) // cols
             
             fig, axes = plt.subplots(rows, cols, figsize=(15, 4*rows))
-            fig.suptitle(f'{title} - Sample {sample_idx}', fontsize=14)
+            fig.suptitle(f'{title} - Sample {sample_idx} ({dataset_type} set)', fontsize=14)
             
             if rows == 1:
                 axes = axes.reshape(1, -1)
@@ -246,15 +262,15 @@ class ModelInternalVisualizer:
                 axes[row, col].axis('off')
             
             plt.tight_layout()
-            plt.savefig(os.path.join(save_dir, f'{feat_name}_sample_{sample_idx}.png'), 
+            plt.savefig(os.path.join(save_dir, f'{feat_name}_sample_{sample_idx}_{dataset_type}.png'), 
                        dpi=300, bbox_inches='tight')
             plt.close()
     
-    def _visualize_attention_analysis(self, xray, drr, attention, save_dir, sample_idx):
+    def _visualize_attention_analysis(self, xray, drr, attention, save_dir, sample_idx, dataset_type="validation"):
         """Create detailed attention analysis."""
         
         fig, axes = plt.subplots(2, 3, figsize=(15, 10))
-        fig.suptitle(f'Attention Analysis - Sample {sample_idx}', fontsize=14)
+        fig.suptitle(f'Attention Analysis - Sample {sample_idx} ({dataset_type} set)', fontsize=14)
         
         xray_np = self._tensor_to_numpy(xray)
         drr_np = self._tensor_to_numpy(drr)
@@ -309,7 +325,7 @@ class ModelInternalVisualizer:
         axes[1, 2].axis('off')
         
         plt.tight_layout()
-        plt.savefig(os.path.join(save_dir, f'attention_analysis_sample_{sample_idx}.png'), 
+        plt.savefig(os.path.join(save_dir, f'attention_analysis_sample_{sample_idx}_{dataset_type}.png'), 
                    dpi=300, bbox_inches='tight')
         plt.close()
     
@@ -462,6 +478,75 @@ class ModelInternalVisualizer:
         plt.close()
         
         print(f"Sample range comparison saved to {save_dir}/comparison_samples_{start_idx}_to_{start_idx + num_samples - 1}.png")
+    
+    def compare_multiple_samples_range_dataset(self, start_idx=0, num_samples=5, save_dir='visualizations', from_training=False):
+        """Compare multiple samples starting from a specific index from chosen dataset."""
+        
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # Load specified dataset
+        dataset = DRRDataset(
+            data_root=self.config.DATA_ROOT,
+            image_size=self.config.IMAGE_SIZE,
+            training=from_training,
+            augment=False,
+            normalize=self.config.NORMALIZE_DATA
+        )
+        
+        dataset_type = "training" if from_training else "validation"
+        
+        fig, axes = plt.subplots(4, num_samples, figsize=(4*num_samples, 16))
+        fig.suptitle(f'Sample Comparison ({dataset_type} set): {start_idx} to {start_idx + num_samples - 1}', fontsize=16)
+        
+        for i in range(num_samples):
+            sample_idx = start_idx + i
+            if sample_idx >= len(dataset):
+                # Hide remaining subplots if we run out of samples
+                for row in range(4):
+                    axes[row, i].axis('off')
+                continue
+            
+            # Get sample
+            xray, drr, mask = dataset[sample_idx]
+            xray = xray.unsqueeze(0).to(self.device)
+            drr = drr.unsqueeze(0).to(self.device)
+            mask = mask.unsqueeze(0).to(self.device)
+            
+            # Forward pass
+            with torch.no_grad():
+                result = self.model(xray, drr)
+                segmentation = result['segmentation']
+                attention = result['attention']
+            
+            # Convert to numpy
+            xray_np = self._tensor_to_numpy(xray)
+            mask_np = self._tensor_to_numpy(mask)
+            seg_np = torch.sigmoid(segmentation).cpu().numpy()[0, 0]
+            attention_np = attention.cpu().numpy()[0, 0]
+            
+            # Plot
+            axes[0, i].imshow(xray_np, cmap='gray')
+            axes[0, i].set_title(f'Sample {sample_idx} ({dataset_type}) - X-ray')
+            axes[0, i].axis('off')
+            
+            axes[1, i].imshow(attention_np, cmap='hot')
+            axes[1, i].set_title('Attention')
+            axes[1, i].axis('off')
+            
+            axes[2, i].imshow(mask_np, cmap='jet')
+            axes[2, i].set_title('Ground Truth')
+            axes[2, i].axis('off')
+            
+            axes[3, i].imshow(seg_np, cmap='jet')
+            axes[3, i].set_title('Prediction')
+            axes[3, i].axis('off')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, f'comparison_{dataset_type}_samples_{start_idx}_to_{start_idx + num_samples - 1}.png'), 
+                   dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"Sample range comparison ({dataset_type}) saved to {save_dir}/comparison_{dataset_type}_samples_{start_idx}_to_{start_idx + num_samples - 1}.png")
 
 
 def main():
@@ -472,6 +557,7 @@ def main():
     parser = argparse.ArgumentParser(description='Visualize model internals for specific samples')
     parser.add_argument('--sample', type=int, default=0, help='Sample index to visualize (default: 0)')
     parser.add_argument('--samples', type=str, default=None, help='Comma-separated list of sample indices (e.g., "0,1,2,3")')
+    parser.add_argument('--from-training', action='store_true', help='Use training set instead of validation set')
     parser.add_argument('--multi', type=int, default=5, help='Number of samples for multi-sample comparison (default: 5)')
     parser.add_argument('--output-dir', type=str, default='model_visualizations', help='Output directory for visualizations')
     args = parser.parse_args()
@@ -514,11 +600,14 @@ def main():
         sample_indices = [args.sample]
         print(f"Visualizing sample: {args.sample}")
     
+    dataset_type = "training" if args.from_training else "validation"
+    print(f"Using {dataset_type} set")
+    
     # Visualize specified samples
     for i in sample_indices:
         try:
-            print(f"\nProcessing sample {i}...")
-            visualizer.visualize_sample(sample_idx=i, save_dir=vis_dir)
+            print(f"\nProcessing sample {i} from {dataset_type} set...")
+            visualizer.visualize_sample(sample_idx=i, save_dir=vis_dir, from_training=args.from_training)
             print(f"✓ Sample {i} visualization completed")
         except Exception as e:
             print(f"✗ Error visualizing sample {i}: {e}")
@@ -538,7 +627,7 @@ def main():
             print(f"  - {file}")
 
 
-def visualize_specific_sample(sample_idx, output_dir='model_visualizations'):
+def visualize_specific_sample(sample_idx, output_dir='model_visualizations', from_training=False):
     """Convenience function to visualize a specific sample."""
     config = SmallDatasetConfig()
     
@@ -554,7 +643,8 @@ def visualize_specific_sample(sample_idx, output_dir='model_visualizations'):
             model_path = path
             break
     
-    print(f"Visualizing sample {sample_idx}...")
+    dataset_type = "training" if from_training else "validation"
+    print(f"Visualizing sample {sample_idx} from {dataset_type} set...")
     if model_path:
         print(f"Using trained model: {model_path}")
     else:
@@ -565,11 +655,11 @@ def visualize_specific_sample(sample_idx, output_dir='model_visualizations'):
     os.makedirs(output_dir, exist_ok=True)
     
     try:
-        visualizer.visualize_sample(sample_idx=sample_idx, save_dir=output_dir)
-        print(f"✓ Sample {sample_idx} visualization saved to {output_dir}/")
+        visualizer.visualize_sample(sample_idx=sample_idx, save_dir=output_dir, from_training=from_training)
+        print(f"✓ Sample {sample_idx} ({dataset_type}) visualization saved to {output_dir}/")
         
         # List generated files
-        files = [f for f in os.listdir(output_dir) if f.endswith('.png') and f'sample_{sample_idx}' in f]
+        files = [f for f in os.listdir(output_dir) if f.endswith('.png') and f'sample_{sample_idx}_{dataset_type}' in f]
         print(f"Generated {len(files)} visualization files:")
         for file in sorted(files):
             print(f"  - {file}")
