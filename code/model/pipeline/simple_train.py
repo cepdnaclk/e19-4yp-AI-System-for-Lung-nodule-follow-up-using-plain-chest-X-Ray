@@ -68,11 +68,13 @@ def train_lightweight_model():
         pin_memory=config.PIN_MEMORY
     )
     
-    # Initialize lightweight model
-    print("Initializing lightweight model...")
+    # Initialize lightweight model with nodule-specific features
+    print("Initializing lightweight model with nodule-specific features...")
     model = SmallDatasetXrayDRRModel(
+        pretrained_model=None,  # Will auto-load torchxrayvision model
         alpha=config.ALPHA,
-        freeze_early_layers=True  # Heavy regularization
+        freeze_early_layers=True,  # Heavy regularization
+        target_pathology='Nodule'  # Focus on nodule-specific features
     ).to(config.DEVICE)
     
     # Count parameters
@@ -134,7 +136,8 @@ def train_lightweight_model():
             optimizer.zero_grad()
             
             # Forward pass
-            outputs = model(xray, drr)
+            result = model(xray, drr)
+            outputs = result['segmentation']  # Extract segmentation from result dict
             loss = criterion(outputs, mask)
             
             # Backward pass with gradient clipping
@@ -148,12 +151,12 @@ def train_lightweight_model():
                 dice = dice_coefficient(pred_mask, mask)
                 
                 train_loss += loss.item()
-                train_dice += dice.item()
+                train_dice += dice  # dice_coefficient already returns a scalar
                 num_train_batches += 1
             
             train_pbar.set_postfix({
                 'Loss': f'{loss.item():.4f}',
-                'Dice': f'{dice.item():.4f}'
+                'Dice': f'{dice:.4f}'
             })
         
         # Calculate average training metrics
@@ -173,19 +176,20 @@ def train_lightweight_model():
                 drr = drr.to(config.DEVICE)
                 mask = mask.to(config.DEVICE)
                 
-                outputs = model(xray, drr)
+                result = model(xray, drr)
+                outputs = result['segmentation']  # Extract segmentation from result dict
                 loss = criterion(outputs, mask)
                 
                 pred_mask = torch.sigmoid(outputs) > 0.5
                 dice = dice_coefficient(pred_mask, mask)
                 
                 val_loss += loss.item()
-                val_dice += dice.item()
+                val_dice += dice  # dice_coefficient already returns a scalar
                 num_val_batches += 1
                 
                 val_pbar.set_postfix({
                     'Loss': f'{loss.item():.4f}',
-                    'Dice': f'{dice.item():.4f}'
+                    'Dice': f'{dice:.4f}'
                 })
         
         # Calculate average validation metrics
