@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 from pathlib import Path
 
 # Import our modules
@@ -33,8 +34,27 @@ def test_improved_model():
     
     # Load a sample from the dataset
     print("\nLoading test sample...")
+    
+    # Use cross-platform path detection
+    data_root = os.path.join("..", "..", "..", "DRR dataset", "LIDC_LDRI")
+    
+    # If relative path doesn't exist, try absolute path detection
+    if not os.path.exists(data_root):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        data_root = os.path.join(project_root, "DRR dataset", "LIDC_LDRI")
+        
+        if not os.path.exists(data_root):
+            # Last resort: look for any LIDC_LDRI directory
+            for root, dirs, files in os.walk(os.path.dirname(project_root)):
+                if "LIDC_LDRI" in dirs:
+                    data_root = os.path.join(root, "LIDC_LDRI")
+                    break
+    
+    print(f"Using dataset path: {data_root}")
+    
     dataset = DRRDataset(
-        data_root=r"e:\Campus2\fyp-repo\e19-4yp-AI-System-for-Lung-nodule-follow-up-using-plain-chest-X-Ray\DRR dataset\LIDC_LDRI",
+        data_root=data_root,
         training=True,
         augment=False,
         normalize=True
