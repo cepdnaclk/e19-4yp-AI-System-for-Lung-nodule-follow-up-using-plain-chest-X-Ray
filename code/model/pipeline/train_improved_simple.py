@@ -162,7 +162,9 @@ class ImprovedTrainer:
             with torch.no_grad():
                 seg_pred = torch.sigmoid(predictions['segmentation'])
                 dice = dice_coefficient(seg_pred, masks)
-                total_dice += dice.item()
+                # Handle both tensor and float returns from dice_coefficient
+                dice_value = dice.item() if hasattr(dice, 'item') else dice
+                total_dice += dice_value
             
             # Update totals
             total_loss += loss.item()
@@ -174,7 +176,7 @@ class ImprovedTrainer:
             # Update progress bar
             progress_bar.set_postfix({
                 'Loss': f'{loss.item():.4f}',
-                'Dice': f'{dice.item():.4f}',
+                'Dice': f'{dice_value:.4f}',
                 'AttLoss': f'{loss_info.get("attention_supervision_loss", torch.tensor(0)).item():.4f}'
             })
             
@@ -183,7 +185,7 @@ class ImprovedTrainer:
                 logger.info(
                     f'Epoch {epoch+1}, Batch {batch_idx}: '
                     f'Loss={loss.item():.4f}, '
-                    f'Dice={dice.item():.4f}, '
+                    f'Dice={dice_value:.4f}, '
                     f'AttLoss={loss_info.get("attention_supervision_loss", torch.tensor(0)).item():.4f}'
                 )
         
@@ -222,9 +224,11 @@ class ImprovedTrainer:
                 # Calculate dice
                 seg_pred = torch.sigmoid(predictions['segmentation'])
                 dice = dice_coefficient(seg_pred, masks)
+                # Handle both tensor and float returns from dice_coefficient
+                dice_value = dice.item() if hasattr(dice, 'item') else dice
                 
                 total_loss += loss.item()
-                total_dice += dice.item()
+                total_dice += dice_value
                 num_batches += 1
         
         avg_loss = total_loss / num_batches
