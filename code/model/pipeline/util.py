@@ -71,6 +71,17 @@ def dice_coefficient(pred, target, eps=1e-7):
     dice = (2. * intersection + eps) / (union + eps)
     return dice.item()
 
+def jaccard_index(pred, target, eps=1e-7):
+    """Calculate Jaccard index (IoU) metric."""
+    pred = pred.view(-1)
+    target = target.view(-1)
+    
+    intersection = (pred * target).sum()
+    union = pred.sum() + target.sum() - intersection
+    
+    jaccard = (intersection + eps) / (union + eps)
+    return jaccard.item()
+
 def focal_loss(pred, target, alpha=1, gamma=2, eps=1e-7):
     """Focal loss for handling class imbalance."""
     ce_loss = F.binary_cross_entropy(pred, target, reduction='none')
