@@ -202,3 +202,172 @@ class DRRSegmentationDataset(Dataset):
             })
         
         return stats
+
+class DRRDataset(Dataset):
+    """
+    DRR Dataset class with train/validation split support.
+    Compatible with the training script interface.
+    """
+    
+    def __init__(self, data_root, image_size=(512, 512), training=True, augment=False, normalize=True, train_split=0.8):
+        """
+        Args:
+            data_root (str): Root directory containing DRR data
+            image_size (tuple): Output image size
+            training (bool): If True, use training split; if False, use validation split
+            augment (bool): Whether to apply augmentation
+            normalize (bool): Whether to normalize for torchxrayvision
+            train_split (float): Fraction of data to use for training
+        """
+        self.data_root = data_root
+        self.image_size = image_size
+        self.training = training
+        self.augment = augment and training  # Only augment training data
+        self.normalize = normalize
+        self.train_split = train_split
+        
+        # Load all image paths
+        self.all_image_paths = []
+        self._load_all_image_paths()
+        
+        # Split into train/validation
+        self._create_train_val_split()
+        
+        # Setup transforms
+        self._setup_transforms()
+        
+        split_name = "training" if training else "validation"
+        print(f"Loaded {len(self.image_paths)} {split_name} samples from {data_root}")
+    
+    def _load_all_image_paths(self):
+        """Load all valid image-mask pairs from the dataset directory."""
+        if not os.path.exists(self.data_root):
+            raise FileNotFoundError(f"Dataset root directory not found: {self.data_root}")
+        
+        # Traverse all subfolders in the root directory
+        for subdir in os.listdir(self.data_root):
+            full_subdir = os.path.join(self.data_root, subdir)
+            if not os.path.isdir(full_subdir):
+                continue
+                
+            # Look for DRR images and corresponding mask files
+            for fname in os.listdir(full_subdir):
+                if fname.endswith('_drr.png') and not fname.endswith('_drr_mask.png'):
+                    drr_path = os.path.join(full_subdir, fname)
+                    mask_path = os.path.join(full_subdir, fname.replace('_drr.png', '_drr_mask.png'))
+                    
+                    # Validate both files exist and are readable
+                    if os.path.exists(mask_path):
+                        try:
+                            # Quick validation that files can be opened
+                            with Image.open(drr_path) as img:
+                                img.verify()
+                            with Image.open(mask_path) as img:
+                                img.verify()
+                            self.all_image_paths.append((drr_path, mask_path))
+                        except Exception as e:
+                            logger.warning(f"Skipping corrupted file pair {drr_path}: {e}")
+        
+        if len(self.all_image_paths) == 0:
+            raise ValueError(f"No valid image-mask pairs found in {self.data_root}")
+    
+    def _create_train_val_split(self):
+        """Create train/validation split."""
+        total_samples = len(self.all_image_paths)
+        train_size = int(total_samples * self.train_split)
+        
+        # Sort paths for reproducible splits
+        self.all_image_paths.sort()
+        
+        if self.training:
+            self.image_paths = self.all_image_paths[:train_size]
+        else:
+            self.image_paths = self.all_image_paths[train_size:]
+    
+    def _setup_transforms(self):
+        """Setup image transformations."""
+        # Base transforms
+        base_transforms = [
+            T.Grayscale(num_output_channels=1),
+            T.Resize(self.image_size),
+        ]
+        
+        # Augmentation transforms (applied randomly)
+        if self.augment:
+            self.augment_transforms = T.Compose([
+                T.RandomRotation(degrees=10),
+                T.RandomHorizontalFlip(p=0.3),  # Reduced for anatomical consistency
+                T.ColorJitter(brightness=0.1, contrast=0.1),
+            ])
+        
+        # Final transforms
+        final_transforms = [T.ToTensor()]
+        
+        if self.normalize:
+            # Rescale to [-1024, 1024] for torchxrayvision compatibility
+            final_transforms.append(T.Lambda(lambda x: x * 2048 - 1024))
+        
+        self.transform_img = T.Compose(base_transforms + final_transforms)
+        self.transform_mask = T.Compose([
+            T.Resize(self.image_size),
+            T.ToTensor()
+        ])
+    
+    def _apply_augmentation(self, drr_img, mask_img):
+        """Apply synchronized augmentation to both image and mask."""
+        if not self.augment:
+            return drr_img, mask_img
+        
+        # Set random seed for synchronized transforms
+        seed = random.randint(0, 2**32)
+        
+        # Apply same random transforms to both image and mask
+        random.seed(seed)
+        torch.manual_seed(seed)
+        drr_aug = self.augment_transforms(drr_img)
+        
+        random.seed(seed)
+        torch.manual_seed(seed)
+        mask_aug = self.augment_transforms(mask_img)
+        
+        return drr_aug, mask_aug
+    
+    def __len__(self):
+        """Return the number of image-mask pairs."""
+        return len(self.image_paths)
+    
+    def __getitem__(self, idx):
+        """Get a single item from the dataset."""
+        try:
+            # Get the DRR and mask file paths for the given index
+            drr_path, mask_path = self.image_paths[idx]
+            
+            # Open images in grayscale mode
+            drr_img = Image.open(drr_path).convert('L')
+            mask_img = Image.open(mask_path).convert('L')
+            
+            # Apply augmentation if enabled
+            drr_img, mask_img = self._apply_augmentation(drr_img, mask_img)
+            
+            # Apply transformations
+            drr = self.transform_img(drr_img)
+            mask = self.transform_mask(mask_img)
+            
+            # Ensure binary mask
+            mask = (mask > 0.5).float()
+            
+            # Validate tensor shapes
+            assert drr.shape[1:] == self.image_size, f"DRR shape mismatch: {drr.shape}"
+            assert mask.shape[1:] == self.image_size, f"Mask shape mismatch: {mask.shape}"
+            
+            # Return xray, drr, mask format expected by training script
+            return drr, drr, mask  # Using DRR as both xray and drr input
+            
+        except Exception as e:
+            logger.error(f"Error loading sample {idx} ({self.image_paths[idx]}): {e}")
+            # Return a dummy sample to avoid breaking the training loop
+            dummy_tensor = torch.zeros((1, *self.image_size))
+            return dummy_tensor, dummy_tensor, dummy_tensor
+
+# Keep the original class for backward compatibility
+DRRSegmentationDataset = DRRSegmentationDataset
