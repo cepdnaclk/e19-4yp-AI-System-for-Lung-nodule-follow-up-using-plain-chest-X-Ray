@@ -102,8 +102,7 @@ def train_lightweight_model():
         optimizer,
         mode='min',
         factor=config.SCHEDULER_FACTOR,
-        patience=config.SCHEDULER_PATIENCE,
-        verbose=True
+        patience=config.SCHEDULER_PATIENCE
     )
     
     # Training tracking
