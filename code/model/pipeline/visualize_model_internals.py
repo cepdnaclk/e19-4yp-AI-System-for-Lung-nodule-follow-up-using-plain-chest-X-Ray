@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 from torch.utils.data import DataLoader
-import cv2
 
 from small_dataset_config import SmallDatasetConfig
 from lightweight_model import SmallDatasetXrayDRRModel
@@ -44,7 +43,18 @@ class ModelInternalVisualizer:
     def _load_model(self, model_path):
         """Load trained model from checkpoint."""
         print(f"Loading model from {model_path}")
-        checkpoint = torch.load(model_path, map_location=self.device)
+        try:
+            # Try loading with weights_only=False for compatibility
+            checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
+        except Exception as e:
+            print(f"Failed to load checkpoint: {e}")
+            print("Creating new model instead...")
+            return SmallDatasetXrayDRRModel(
+                pretrained_model=None,
+                alpha=self.config.ALPHA,
+                freeze_early_layers=True,
+                target_pathology='Nodule'
+            ).to(self.device)
         
         model = SmallDatasetXrayDRRModel(
             pretrained_model=None,
@@ -264,7 +274,15 @@ class ModelInternalVisualizer:
         
         # Attention overlay on X-ray
         axes[0, 2].imshow(xray_np, cmap='gray')
-        attention_resized = cv2.resize(attention_np, (xray_np.shape[1], xray_np.shape[0]))
+        # Resize attention using torch interpolation
+        attention_tensor = torch.from_numpy(attention_np).unsqueeze(0).unsqueeze(0)
+        attention_resized_tensor = F.interpolate(
+            attention_tensor, 
+            size=(xray_np.shape[0], xray_np.shape[1]), 
+            mode='bilinear', 
+            align_corners=False
+        )
+        attention_resized = attention_resized_tensor.squeeze().numpy()
         axes[0, 2].imshow(attention_resized, cmap='hot', alpha=0.5)
         axes[0, 2].set_title('Attention on X-ray')
         axes[0, 2].axis('off')
