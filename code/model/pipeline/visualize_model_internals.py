@@ -395,10 +395,86 @@ class ModelInternalVisualizer:
         plt.close()
         
         print(f"Multi-sample comparison saved to {save_dir}/multi_sample_comparison.png")
+    
+    def compare_multiple_samples_range(self, start_idx=0, num_samples=5, save_dir='visualizations'):
+        """Compare multiple samples starting from a specific index."""
+        
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # Load dataset
+        val_dataset = DRRDataset(
+            data_root=self.config.DATA_ROOT,
+            image_size=self.config.IMAGE_SIZE,
+            training=False,
+            augment=False,
+            normalize=self.config.NORMALIZE_DATA
+        )
+        
+        fig, axes = plt.subplots(4, num_samples, figsize=(4*num_samples, 16))
+        fig.suptitle(f'Sample Comparison: {start_idx} to {start_idx + num_samples - 1}', fontsize=16)
+        
+        for i in range(num_samples):
+            sample_idx = start_idx + i
+            if sample_idx >= len(val_dataset):
+                # Hide remaining subplots if we run out of samples
+                for row in range(4):
+                    axes[row, i].axis('off')
+                continue
+            
+            # Get sample
+            xray, drr, mask = val_dataset[sample_idx]
+            xray = xray.unsqueeze(0).to(self.device)
+            drr = drr.unsqueeze(0).to(self.device)
+            mask = mask.unsqueeze(0).to(self.device)
+            
+            # Forward pass
+            with torch.no_grad():
+                result = self.model(xray, drr)
+                segmentation = result['segmentation']
+                attention = result['attention']
+            
+            # Convert to numpy
+            xray_np = self._tensor_to_numpy(xray)
+            mask_np = self._tensor_to_numpy(mask)
+            seg_np = torch.sigmoid(segmentation).cpu().numpy()[0, 0]
+            attention_np = attention.cpu().numpy()[0, 0]
+            
+            # Plot
+            axes[0, i].imshow(xray_np, cmap='gray')
+            axes[0, i].set_title(f'Sample {sample_idx} - X-ray')
+            axes[0, i].axis('off')
+            
+            axes[1, i].imshow(attention_np, cmap='hot')
+            axes[1, i].set_title('Attention')
+            axes[1, i].axis('off')
+            
+            axes[2, i].imshow(mask_np, cmap='jet')
+            axes[2, i].set_title('Ground Truth')
+            axes[2, i].axis('off')
+            
+            axes[3, i].imshow(seg_np, cmap='jet')
+            axes[3, i].set_title('Prediction')
+            axes[3, i].axis('off')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, f'comparison_samples_{start_idx}_to_{start_idx + num_samples - 1}.png'), 
+                   dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"Sample range comparison saved to {save_dir}/comparison_samples_{start_idx}_to_{start_idx + num_samples - 1}.png")
 
 
 def main():
     """Main visualization function."""
+    import argparse
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Visualize model internals for specific samples')
+    parser.add_argument('--sample', type=int, default=0, help='Sample index to visualize (default: 0)')
+    parser.add_argument('--samples', type=str, default=None, help='Comma-separated list of sample indices (e.g., "0,1,2,3")')
+    parser.add_argument('--multi', type=int, default=5, help='Number of samples for multi-sample comparison (default: 5)')
+    parser.add_argument('--output-dir', type=str, default='model_visualizations', help='Output directory for visualizations')
+    args = parser.parse_args()
     
     config = SmallDatasetConfig()
     
@@ -423,29 +499,84 @@ def main():
     visualizer = ModelInternalVisualizer(model_path, config)
     
     # Create visualizations directory
-    vis_dir = 'model_visualizations'
+    vis_dir = args.output_dir
     os.makedirs(vis_dir, exist_ok=True)
     
     print("Creating comprehensive visualizations...")
     
-    # Visualize individual samples
-    for i in range(3):  # Visualize first 3 samples
+    # Determine which samples to visualize
+    if args.samples:
+        # Parse comma-separated list
+        sample_indices = [int(x.strip()) for x in args.samples.split(',')]
+        print(f"Visualizing specific samples: {sample_indices}")
+    else:
+        # Use single sample or default range
+        sample_indices = [args.sample]
+        print(f"Visualizing sample: {args.sample}")
+    
+    # Visualize specified samples
+    for i in sample_indices:
         try:
+            print(f"\nProcessing sample {i}...")
             visualizer.visualize_sample(sample_idx=i, save_dir=vis_dir)
+            print(f"✓ Sample {i} visualization completed")
         except Exception as e:
-            print(f"Error visualizing sample {i}: {e}")
+            print(f"✗ Error visualizing sample {i}: {e}")
     
     # Create multi-sample comparison
     try:
-        visualizer.compare_multiple_samples(num_samples=5, save_dir=vis_dir)
+        print(f"\nCreating multi-sample comparison with {args.multi} samples...")
+        visualizer.compare_multiple_samples(num_samples=args.multi, save_dir=vis_dir)
+        print("✓ Multi-sample comparison completed")
     except Exception as e:
-        print(f"Error creating multi-sample comparison: {e}")
+        print(f"✗ Error creating multi-sample comparison: {e}")
     
     print(f"\nAll visualizations saved to {vis_dir}/")
     print("\nGenerated files:")
-    for file in os.listdir(vis_dir):
+    for file in sorted(os.listdir(vis_dir)):
         if file.endswith('.png'):
             print(f"  - {file}")
+
+
+def visualize_specific_sample(sample_idx, output_dir='model_visualizations'):
+    """Convenience function to visualize a specific sample."""
+    config = SmallDatasetConfig()
+    
+    # Try to find a trained model
+    model_paths = [
+        os.path.join(config.SAVE_DIR, 'best_lightweight_model.pth'),
+        os.path.join(config.SAVE_DIR, 'final_lightweight_model.pth')
+    ]
+    
+    model_path = None
+    for path in model_paths:
+        if os.path.exists(path):
+            model_path = path
+            break
+    
+    print(f"Visualizing sample {sample_idx}...")
+    if model_path:
+        print(f"Using trained model: {model_path}")
+    else:
+        print("No trained model found. Creating new model for visualization.")
+    
+    # Create visualizer and process sample
+    visualizer = ModelInternalVisualizer(model_path, config)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    try:
+        visualizer.visualize_sample(sample_idx=sample_idx, save_dir=output_dir)
+        print(f"✓ Sample {sample_idx} visualization saved to {output_dir}/")
+        
+        # List generated files
+        files = [f for f in os.listdir(output_dir) if f.endswith('.png') and f'sample_{sample_idx}' in f]
+        print(f"Generated {len(files)} visualization files:")
+        for file in sorted(files):
+            print(f"  - {file}")
+            
+    except Exception as e:
+        print(f"✗ Error visualizing sample {sample_idx}: {e}")
+        raise
 
 
 if __name__ == "__main__":
