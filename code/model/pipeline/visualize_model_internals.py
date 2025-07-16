@@ -11,7 +11,8 @@ import os
 from torch.utils.data import DataLoader
 
 from small_dataset_config import SmallDatasetConfig
-from lightweight_model import SmallDatasetXrayDRRModel
+from improved_model import ImprovedXrayDRRModel  # Use the improved model
+from improved_config import IMPROVED_CONFIG  # Use improved config
 from drr_dataset_loading import DRRDataset
 
 
@@ -27,11 +28,11 @@ class ModelInternalVisualizer:
             self.model = self._load_model(model_path)
         else:
             print("Creating new model for visualization...")
-            self.model = SmallDatasetXrayDRRModel(
+            self.model = ImprovedXrayDRRModel(
                 pretrained_model=None,
-                alpha=self.config.ALPHA,
-                freeze_early_layers=True,
-                target_pathology='Nodule'
+                alpha=IMPROVED_CONFIG['ALPHA'],
+                use_supervised_attention=IMPROVED_CONFIG['USE_SUPERVISED_ATTENTION'],
+                target_pathology=IMPROVED_CONFIG['TARGET_PATHOLOGY']
             ).to(self.device)
         
         self.model.eval()
@@ -49,18 +50,18 @@ class ModelInternalVisualizer:
         except Exception as e:
             print(f"Failed to load checkpoint: {e}")
             print("Creating new model instead...")
-            return SmallDatasetXrayDRRModel(
+            return ImprovedXrayDRRModel(
                 pretrained_model=None,
-                alpha=self.config.ALPHA,
-                freeze_early_layers=True,
-                target_pathology='Nodule'
+                alpha=IMPROVED_CONFIG['ALPHA'],
+                use_supervised_attention=IMPROVED_CONFIG['USE_SUPERVISED_ATTENTION'],
+                target_pathology=IMPROVED_CONFIG['TARGET_PATHOLOGY']
             ).to(self.device)
         
-        model = SmallDatasetXrayDRRModel(
+        model = ImprovedXrayDRRModel(
             pretrained_model=None,
-            alpha=self.config.ALPHA,
-            freeze_early_layers=True,
-            target_pathology='Nodule'
+            alpha=IMPROVED_CONFIG['ALPHA'],
+            use_supervised_attention=IMPROVED_CONFIG['USE_SUPERVISED_ATTENTION'],
+            target_pathology=IMPROVED_CONFIG['TARGET_PATHOLOGY']
         ).to(self.device)
         
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -565,7 +566,7 @@ def main():
     
     # Try to find a trained model - prioritize improved models
     model_paths = [
-        'checkpoints_improved/checkpoint_epoch_96.pth',  # Your latest improved model
+        'checkpoints_improved/best_model_improved.pth',  # Your latest improved model
         os.path.join(config.SAVE_DIR, 'best_lightweight_model.pth'),
         os.path.join(config.SAVE_DIR, 'final_lightweight_model.pth')
     ]
@@ -633,7 +634,7 @@ def visualize_specific_sample(sample_idx, output_dir='model_visualizations', fro
     
     # Try to find a trained model - prioritize improved models
     model_paths = [
-        'checkpoints_improved/checkpoint_epoch_96.pth',  # Your latest improved model
+        'checkpoints_improved/best_model_improved.pth',  # Your latest improved model
         os.path.join(config.SAVE_DIR, 'best_lightweight_model.pth'),
         os.path.join(config.SAVE_DIR, 'final_lightweight_model.pth')
     ]
