@@ -137,7 +137,13 @@ def train_lightweight_model():
             # Forward pass
             result = model(xray, drr)
             outputs = result['segmentation']  # Extract segmentation from result dict
-            loss = criterion(outputs, mask)
+            loss_output = criterion(outputs, mask)
+            
+            # Handle loss output (could be tuple with loss details)
+            if isinstance(loss_output, tuple):
+                loss, loss_details = loss_output
+            else:
+                loss = loss_output
             
             # Backward pass with gradient clipping
             loss.backward()
@@ -177,7 +183,13 @@ def train_lightweight_model():
                 
                 result = model(xray, drr)
                 outputs = result['segmentation']  # Extract segmentation from result dict
-                loss = criterion(outputs, mask)
+                loss_output = criterion(outputs, mask)
+                
+                # Handle loss output (could be tuple with loss details)
+                if isinstance(loss_output, tuple):
+                    loss, loss_details = loss_output
+                else:
+                    loss = loss_output
                 
                 pred_mask = torch.sigmoid(outputs) > 0.5
                 dice = dice_coefficient(pred_mask, mask)
