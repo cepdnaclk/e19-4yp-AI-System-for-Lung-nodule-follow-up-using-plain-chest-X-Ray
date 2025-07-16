@@ -153,6 +153,15 @@ class SmallDatasetXrayDRRModel(nn.Module):
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True)
         )
+        
+        # Lightweight attention module
+        self.spatial_attention = LightweightAttentionModule(in_channels=1, hidden_channels=16)
+        
+        # Feature fusion layer for combining nodule-specific and adapted features
+        self.feature_fusion = nn.Conv2d(192, 128, kernel_size=1)  # 128 + 64 = 192
+        
+        # Simple upsampling head - updated to work with adapted features
+        self.segmentation_head = SimpleUpsamplingHead(in_channels=128, hidden_channels=64)
     
     def _create_nodule_feature_extractor(self):
         """Create a nodule-specific feature extractor using pretrained pathology weights."""
@@ -187,15 +196,6 @@ class SmallDatasetXrayDRRModel(nn.Module):
                 nn.ReLU(inplace=True),
                 nn.Dropout2d(0.3)
             )
-        
-        # Lightweight attention module
-        self.spatial_attention = LightweightAttentionModule(in_channels=1, hidden_channels=16)
-        
-        # Feature fusion layer for combining nodule-specific and adapted features
-        self.feature_fusion = nn.Conv2d(192, 128, kernel_size=1)  # 128 + 64 = 192
-        
-        # Simple upsampling head - updated to work with adapted features
-        self.segmentation_head = SimpleUpsamplingHead(in_channels=128, hidden_channels=64)
         
         # Optional feature fusion (very simple)
         self.use_fusion = False  # Disable complex fusion for small datasets
