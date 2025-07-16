@@ -214,6 +214,97 @@ class ImprovedTrainer:
         avg_dice = total_dice / num_batches
         
         return avg_loss, avg_dice
+    
+    def save_checkpoint(self, epoch, is_best=False):
+        """Save model checkpoint."""
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict(),
+            'best_dice': self.best_dice,
+            'train_losses': self.train_losses,
+            'val_losses': self.val_losses,
+            'val_dices': self.val_dices,
+            'config': self.config
+        }
+        
+        # Save regular checkpoint
+        checkpoint_path = self.checkpoint_dir / f'checkpoint_epoch_{epoch+1}.pth'
+        torch.save(checkpoint, checkpoint_path)
+        
+        # Save best model
+        if is_best:
+            best_path = self.checkpoint_dir / 'best_model_improved.pth'
+            torch.save(checkpoint, best_path)
+            logger.info(f"New best model saved with Dice: {self.best_dice:.4f}")
+    
+    def train(self):
+        """Main training loop."""
+        logger.info("Starting improved model training...")
+        
+        # Create dataloaders
+        train_loader, val_loader = self.create_dataloaders()
+        
+        # Training loop
+        patience_counter = 0
+        
+        for epoch in range(self.config['NUM_EPOCHS']):
+            logger.info(f"\nEpoch {epoch+1}/{self.config['NUM_EPOCHS']}")
+            
+            # Train
+            train_loss, train_seg_loss, train_att_loss, train_dice = self.train_epoch(train_loader, epoch)
+            
+            # Validate
+            if epoch % self.config['VALIDATION_FREQUENCY'] == 0:
+                val_loss, val_dice = self.validate(val_loader, epoch)
+                
+                # Update learning rate
+                self.scheduler.step(val_loss)
+                
+                # Track metrics
+                self.train_losses.append(train_loss)
+                self.val_losses.append(val_loss)
+                self.val_dices.append(val_dice)
+                self.attention_losses.append(train_att_loss)
+                
+                # Check for best model
+                is_best = val_dice > self.best_dice
+                if is_best:
+                    self.best_dice = val_dice
+                    self.best_epoch = epoch
+                    patience_counter = 0
+                else:
+                    patience_counter += 1
+                
+                # Save checkpoint
+                if self.config['SAVE_BEST_MODEL']:
+                    self.save_checkpoint(epoch, is_best)
+                
+                # Log results
+                logger.info(
+                    f"Epoch {epoch+1}: "
+                    f"Train Loss: {train_loss:.4f}, "
+                    f"Train Dice: {train_dice:.4f}, "
+                    f"Val Loss: {val_loss:.4f}, "
+                    f"Val Dice: {val_dice:.4f}, "
+                    f"Att Loss: {train_att_loss:.4f}"
+                )
+                
+                # Early stopping
+                if patience_counter >= self.config['EARLY_STOPPING_PATIENCE']:
+                    logger.info(f"Early stopping at epoch {epoch+1}")
+                    break
+            else:
+                # Just log training metrics on non-validation epochs
+                logger.info(
+                    f"Epoch {epoch+1}: "
+                    f"Train Loss: {train_loss:.4f}, "
+                    f"Train Dice: {train_dice:.4f}, "
+                    f"Att Loss: {train_att_loss:.4f}"
+                )
+        
+        logger.info(f"Training completed. Best Dice: {self.best_dice:.4f} at epoch {self.best_epoch+1}")
 
 def main():
     """Main training function."""

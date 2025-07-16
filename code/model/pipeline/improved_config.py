@@ -204,7 +204,6 @@ def get_improved_scheduler(optimizer):
         mode='min',
         factor=0.5,
         patience=IMPROVED_CONFIG['SCHEDULER_PATIENCE'],
-        verbose=True,
         min_lr=1e-7
     )
 
