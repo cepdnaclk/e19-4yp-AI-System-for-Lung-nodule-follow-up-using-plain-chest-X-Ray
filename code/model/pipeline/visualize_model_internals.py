@@ -74,11 +74,11 @@ class ModelInternalVisualizer:
                 self.feature_maps[name] = output.detach()
             return hook
         
-        # Register hooks for key layers
+        # Register hooks for key layers (improved model architecture)
         self.model.feature_extractor[-1].register_forward_hook(get_activation('backbone_features'))
         self.model.nodule_feature_extractor.register_forward_hook(get_activation('nodule_specific_features'))
         self.model.nodule_adaptation.register_forward_hook(get_activation('adapted_features'))
-        self.model.feature_fusion.register_forward_hook(get_activation('fused_features'))
+        # Note: feature_fusion doesn't exist in ImprovedXrayDRRModel, removed this hook
         self.model.spatial_attention.register_forward_hook(get_activation('spatial_attention'))
         self.model.segmentation_head.register_forward_hook(get_activation('segmentation_output'))
     
@@ -187,15 +187,15 @@ class ModelInternalVisualizer:
                            ha='center', va='center', transform=axes[1, 0].transAxes)
             axes[1, 0].axis('off')
         
-        # Show fused features
-        if 'fused_features' in self.feature_maps:
-            fused_feat = self.feature_maps['fused_features'].cpu().numpy()[0]
-            fused_feat_avg = np.mean(fused_feat, axis=0)
-            axes[1, 1].imshow(fused_feat_avg, cmap='plasma')
-            axes[1, 1].set_title('Fused Features\n(Channel Average)')
+        # Show adapted features (equivalent to fused features in improved model)
+        if 'adapted_features' in self.feature_maps:
+            adapted_feat = self.feature_maps['adapted_features'].cpu().numpy()[0]
+            adapted_feat_avg = np.mean(adapted_feat, axis=0)
+            axes[1, 1].imshow(adapted_feat_avg, cmap='plasma')
+            axes[1, 1].set_title('Adapted Features\n(Channel Average)')
             axes[1, 1].axis('off')
         else:
-            axes[1, 1].text(0.5, 0.5, 'Fused Features\nNot Available', 
+            axes[1, 1].text(0.5, 0.5, 'Adapted Features\nNot Available', 
                            ha='center', va='center', transform=axes[1, 1].transAxes)
             axes[1, 1].axis('off')
         
@@ -222,8 +222,7 @@ class ModelInternalVisualizer:
         feature_types = [
             ('backbone_features', 'Backbone Features', 'viridis'),
             ('nodule_specific_features', 'Nodule-Specific Features', 'plasma'),
-            ('adapted_features', 'Adapted Features', 'inferno'),
-            ('fused_features', 'Fused Features', 'magma')
+            ('adapted_features', 'Adapted Features', 'inferno')
         ]
         
         for feat_name, title, cmap in feature_types:
