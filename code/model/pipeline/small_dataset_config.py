@@ -18,7 +18,7 @@ class SmallDatasetConfig:
     NORMALIZE_DATA = True
     
     # Model configuration - lightweight
-    ALPHA = 0.2  # Moderate attention influence
+    ALPHA = 0.05  # Much smaller attention influence to prevent saturation
     PRETRAINED_WEIGHTS = "resnet50-res512-all"
     USE_CHANNEL_ATTENTION = False  # Disable to reduce complexity
     MODEL_TYPE = 'lightweight'  # 'lightweight' or 'minimal'

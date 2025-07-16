@@ -10,30 +10,89 @@ import torch.nn.functional as F
 class LightweightAttentionModule(nn.Module):
     """Lightweight attention module designed for small datasets."""
     
-    def __init__(self, in_channels=1, hidden_channels=16):  # Much smaller capacity
+    def __init__(self, in_channels=1, hidden_channels=16):
         super().__init__()
         
-        # Simple but effective attention network
+        # Simple attention network with better normalization
         self.attention_net = nn.Sequential(
-            # First layer with heavy dropout
-            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
+            # First layer with reduced dropout
+            nn.Conv2d(in_channels, hidden_channels, kernel_size=5, padding=2),
             nn.BatchNorm2d(hidden_channels),
             nn.ReLU(inplace=True),
-            nn.Dropout2d(0.3),  # Heavy regularization
+            nn.Dropout2d(0.1),
             
             # Second layer
-            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(hidden_channels),
+            nn.Conv2d(hidden_channels, hidden_channels//2, kernel_size=3, padding=1),
+            nn.BatchNorm2d(hidden_channels//2),
             nn.ReLU(inplace=True),
-            nn.Dropout2d(0.3),
+            nn.Dropout2d(0.1),
             
             # Output layer
-            nn.Conv2d(hidden_channels, 1, kernel_size=1),
-            nn.Sigmoid()
+            nn.Conv2d(hidden_channels//2, 1, kernel_size=3, padding=1)
         )
         
     def forward(self, drr):
-        return self.attention_net(drr)
+        # Get raw attention scores
+        attention_raw = self.attention_net(drr)  # [B, 1, H, W]
+        
+        # Use min-max normalization instead of softmax to preserve spatial contrast
+        B, C, H, W = attention_raw.shape
+        
+        # Flatten for min-max computation
+        attention_flat = attention_raw.view(B, C, -1)  # [B, 1, H*W]
+        
+        # Get min and max values for each sample
+        min_vals = attention_flat.min(dim=2, keepdim=True)[0]  # [B, 1, 1]
+        max_vals = attention_flat.max(dim=2, keepdim=True)[0]  # [B, 1, 1]
+        
+        # Avoid division by zero
+        range_vals = max_vals - min_vals
+        range_vals = torch.clamp(range_vals, min=1e-6)
+        
+        # Min-max normalization
+        attention_normalized = (attention_flat - min_vals) / range_vals
+        
+        # Reshape back to spatial dimensions
+        attention_map = attention_normalized.view(B, C, H, W)  # [B, 1, H, W]
+        
+        # Apply sigmoid to ensure [0,1] range and add some non-linearity
+        attention_map = torch.sigmoid(attention_map)
+        
+        return attention_map
+
+class DebugAttentionModule(nn.Module):
+    """Debug version of attention module with better visualization."""
+    
+    def __init__(self, in_channels=1, hidden_channels=8):  # Even smaller for debugging
+        super().__init__()
+        
+        # Very simple attention for debugging
+        self.attention_net = nn.Sequential(
+            # Single layer attention
+            nn.Conv2d(in_channels, hidden_channels, kernel_size=5, padding=2),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(hidden_channels, 1, kernel_size=3, padding=1)
+        )
+        
+    def forward(self, drr):
+        # Get raw attention scores
+        attention_raw = self.attention_net(drr)
+        
+        # Apply spatial softmax but keep some contrast
+        B, C, H, W = attention_raw.shape
+        attention_flat = attention_raw.view(B, C, -1)
+        
+        # Use temperature scaling to control sharpness
+        temperature = 0.1  # Lower temperature = sharper attention
+        attention_scaled = attention_flat / temperature
+        attention_normalized = F.softmax(attention_scaled, dim=2)
+        attention_map = attention_normalized.view(B, C, H, W)
+        
+        # Scale back to [0, 1] range for visualization
+        attention_map = attention_map * H * W  # Rescale to make visible
+        attention_map = torch.clamp(attention_map, 0, 1)
+        
+        return attention_map
 
 class SimpleUpsamplingHead(nn.Module):
     """Simple upsampling head optimized for small datasets."""
@@ -79,7 +138,7 @@ class SimpleUpsamplingHead(nn.Module):
 class SmallDatasetXrayDRRModel(nn.Module):
     """Lightweight model specifically designed for small datasets (~600 samples)."""
     
-    def __init__(self, pretrained_model=None, alpha=0.2, freeze_early_layers=True, target_pathology='Nodule'):
+    def __init__(self, pretrained_model=None, alpha=0.1, freeze_early_layers=True, target_pathology='Nodule'):  # Reduced alpha
         super().__init__()
         self.alpha = alpha
         self.target_pathology = target_pathology
