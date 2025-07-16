@@ -563,8 +563,9 @@ def main():
     
     config = SmallDatasetConfig()
     
-    # Try to find a trained model
+    # Try to find a trained model - prioritize improved models
     model_paths = [
+        'checkpoints_improved/checkpoint_epoch_96.pth',  # Your latest improved model
         os.path.join(config.SAVE_DIR, 'best_lightweight_model.pth'),
         os.path.join(config.SAVE_DIR, 'final_lightweight_model.pth')
     ]
@@ -630,8 +631,9 @@ def visualize_specific_sample(sample_idx, output_dir='model_visualizations', fro
     """Convenience function to visualize a specific sample."""
     config = SmallDatasetConfig()
     
-    # Try to find a trained model
+    # Try to find a trained model - prioritize improved models
     model_paths = [
+        'checkpoints_improved/checkpoint_epoch_96.pth',  # Your latest improved model
         os.path.join(config.SAVE_DIR, 'best_lightweight_model.pth'),
         os.path.join(config.SAVE_DIR, 'final_lightweight_model.pth')
     ]
