@@ -24,6 +24,7 @@ from improved_config import (
 )
 from drr_dataset_loading import DRRDataset
 from util import dice_coefficient
+from training_visualization import TrainingVisualizer, EvaluationVisualizer
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +45,9 @@ class ImprovedTrainer:
         
         for directory in [self.checkpoint_dir, self.log_dir, self.attention_dir]:
             directory.mkdir(exist_ok=True)
+        
+        # Initialize visualization
+        self.visualizer = TrainingVisualizer(save_dir='training_visualizations')
         
         # Initialize model, loss, and optimizer
         self.model = create_improved_model().to(self.device)
@@ -202,6 +206,8 @@ class ImprovedTrainer:
         self.model.eval()
         total_loss = 0.0
         total_dice = 0.0
+        total_seg_loss = 0.0
+        total_attention_loss = 0.0
         num_batches = 0
         
         with torch.no_grad():
@@ -214,7 +220,7 @@ class ImprovedTrainer:
                 predictions = self.model(xray, drr, ground_truth_mask=masks)
                 
                 # Compute loss
-                loss, _ = self.criterion(
+                loss, loss_info = self.criterion(
                     predictions, 
                     masks, 
                     epoch=epoch, 
@@ -229,12 +235,17 @@ class ImprovedTrainer:
                 
                 total_loss += loss.item()
                 total_dice += dice_value
+                total_seg_loss += loss_info['segmentation_loss'].item()
+                if 'attention_supervision_loss' in loss_info:
+                    total_attention_loss += loss_info['attention_supervision_loss'].item()
                 num_batches += 1
         
         avg_loss = total_loss / num_batches
         avg_dice = total_dice / num_batches
+        avg_seg_loss = total_seg_loss / num_batches
+        avg_attention_loss = total_attention_loss / num_batches if total_attention_loss > 0 else 0
         
-        return avg_loss, avg_dice
+        return avg_loss, avg_seg_loss, avg_attention_loss, avg_dice
     
     def save_checkpoint(self, epoch, is_best=False):
         """Save model checkpoint."""
@@ -278,10 +289,16 @@ class ImprovedTrainer:
             
             # Validate
             if epoch % self.config['VALIDATION_FREQUENCY'] == 0:
-                val_loss, val_dice = self.validate(val_loader, epoch)
+                val_loss, val_seg_loss, val_att_loss, val_dice = self.validate(val_loader, epoch)
                 
                 # Update learning rate
+                current_lr = self.optimizer.param_groups[0]['lr']
                 self.scheduler.step(val_loss)
+                
+                # Update visualizer with metrics
+                train_metrics = (train_loss, train_seg_loss, train_att_loss, train_dice)
+                val_metrics = (val_loss, val_seg_loss, val_att_loss, val_dice)
+                self.visualizer.update_metrics(epoch, train_metrics, val_metrics, current_lr)
                 
                 # Track metrics
                 self.train_losses.append(train_loss)
@@ -309,7 +326,8 @@ class ImprovedTrainer:
                     f"Train Dice: {train_dice:.4f}, "
                     f"Val Loss: {val_loss:.4f}, "
                     f"Val Dice: {val_dice:.4f}, "
-                    f"Att Loss: {train_att_loss:.4f}"
+                    f"Att Loss: {train_att_loss:.4f}, "
+                    f"LR: {current_lr:.2e}"
                 )
                 
                 # Early stopping
@@ -326,6 +344,19 @@ class ImprovedTrainer:
                 )
         
         logger.info(f"Training completed. Best Dice: {self.best_dice:.4f} at epoch {self.best_epoch+1}")
+        
+        # Generate comprehensive visualizations
+        logger.info("Generating training visualizations...")
+        try:
+            self.visualizer.plot_training_curves()
+            self.visualizer.plot_metrics_distribution()
+            self.visualizer.save_metrics_csv()
+            training_report = self.visualizer.generate_training_report()
+            logger.info("✓ Training visualizations completed successfully!")
+        except Exception as e:
+            logger.warning(f"Error generating visualizations: {e}")
+        
+        return training_report
 
 def main():
     """Main training function."""
@@ -333,7 +364,7 @@ def main():
     trainer = ImprovedTrainer()
     
     # Start training
-    trainer.train()
+    training_report = trainer.train()
     
     print("\n" + "="*60)
     print("IMPROVED TRAINING COMPLETED!")
@@ -341,6 +372,71 @@ def main():
     print(f"Best Dice Score: {trainer.best_dice:.4f}")
     print(f"Best Epoch: {trainer.best_epoch+1}")
     print(f"Model saved to: checkpoints_improved/best_model_improved.pth")
+    print(f"Training visualizations saved to: training_visualizations/")
+    print("="*60)
+    
+    # Run evaluation on the best model
+    print("\nRunning model evaluation...")
+    try:
+        from training_visualization import EvaluationVisualizer, create_final_visualization_report
+        
+        # Load best model for evaluation
+        best_model_path = 'checkpoints_improved/best_model_improved.pth'
+        if os.path.exists(best_model_path):
+            # Create evaluation visualizer
+            eval_visualizer = EvaluationVisualizer(save_dir='evaluation_visualizations')
+            
+            # Load validation dataset for evaluation
+            from drr_dataset_loading import DRRDataset
+            # Use same data path detection logic as trainer
+            data_root = "../../DRR dataset/LIDC_LDRI"
+            if not os.path.exists(data_root):
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+                data_root = os.path.join(project_root, "DRR dataset", "LIDC_LDRI")
+                
+                if not os.path.exists(data_root):
+                    for root, dirs, files in os.walk(os.path.dirname(project_root)):
+                        if "LIDC_LDRI" in dirs:
+                            data_root = os.path.join(root, "LIDC_LDRI")
+                            break
+            
+            val_dataset = DRRDataset(
+                data_root=data_root,
+                training=False,
+                augment=False,
+                normalize=IMPROVED_CONFIG['NORMALIZE_IMAGES']
+            )
+            
+            val_loader = DataLoader(
+                val_dataset,
+                batch_size=IMPROVED_CONFIG['BATCH_SIZE'],
+                shuffle=False,
+                num_workers=2
+            )
+            
+            # Load model
+            model = create_improved_model()
+            checkpoint = torch.load(best_model_path, map_location=trainer.device)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            model = model.to(trainer.device)
+            
+            # Run evaluation
+            eval_report = eval_visualizer.evaluate_model_detailed(model, val_loader, trainer.device)
+            
+            # Create final comprehensive report
+            create_final_visualization_report()
+            
+            print("✓ Model evaluation completed!")
+            print(f"Evaluation visualizations saved to: evaluation_visualizations/")
+            print(f"Final comprehensive report saved to: final_report/")
+            
+        else:
+            print(f"⚠️ Best model not found at {best_model_path}")
+            
+    except Exception as e:
+        print(f"⚠️ Error during evaluation: {e}")
+        print("Training completed successfully, but evaluation failed.")
     print("To test the improved model, run:")
     print("python test_improved_model.py")
 
