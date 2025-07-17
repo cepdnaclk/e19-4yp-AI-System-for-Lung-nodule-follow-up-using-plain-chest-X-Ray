@@ -335,44 +335,66 @@ class EvaluationVisualizer:
         
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
-                xray = batch["xray"].to(device)
-                drr = batch["drr"].to(device)
-                masks = batch["mask"].to(device)
-                
-                # Get predictions
-                outputs = model(xray, drr)
-                predictions = torch.sigmoid(outputs['segmentation'])
-                
-                # Calculate loss (simplified)
-                loss = F.binary_cross_entropy_with_logits(outputs['segmentation'], masks)
-                all_losses.append(loss.item())
-                
-                # Calculate dice for each sample in batch
-                for j in range(predictions.shape[0]):
-                    pred = predictions[j].cpu().numpy()
-                    mask = masks[j].cpu().numpy()
+                try:
+                    # Handle different batch formats
+                    if isinstance(batch, dict):
+                        xray = batch["xray"].to(device)
+                        drr = batch["drr"].to(device)
+                        masks = batch["mask"].to(device)
+                    else:
+                        # If batch is a tuple/list, unpack accordingly
+                        if len(batch) >= 3:
+                            xray, drr, masks = batch[0].to(device), batch[1].to(device), batch[2].to(device)
+                        else:
+                            print(f"⚠️ Unexpected batch format: {type(batch)}")
+                            continue
                     
-                    # Binary prediction
-                    pred_binary = (pred > threshold).astype(float)
+                    # Get predictions
+                    outputs = model(xray, drr)
                     
-                    # Calculate dice
-                    intersection = (pred_binary * mask).sum()
-                    dice = (2 * intersection) / (pred_binary.sum() + mask.sum() + 1e-8)
-                    all_dice_scores.append(dice)
+                    # Handle model output format
+                    if isinstance(outputs, dict):
+                        segmentation_output = outputs['segmentation']
+                    else:
+                        # If outputs is a tuple/list, take the first element as segmentation
+                        segmentation_output = outputs[0] if isinstance(outputs, (list, tuple)) else outputs
                     
-                    # Store for analysis
-                    all_predictions.append(pred_binary.flatten())
-                    all_masks.append(mask.flatten())
+                    predictions = torch.sigmoid(segmentation_output)
                     
-                    # Store some samples for visualization
-                    if len(sample_predictions) < 8:
-                        sample_predictions.append({
-                            'xray': xray[j].cpu().numpy(),
-                            'drr': drr[j].cpu().numpy(),
-                            'mask': mask.cpu().numpy(),
-                            'prediction': pred.cpu().numpy(),
-                            'dice': dice
-                        })
+                    # Calculate loss (simplified)
+                    loss = F.binary_cross_entropy_with_logits(segmentation_output, masks)
+                    all_losses.append(loss.item())
+                    
+                    # Calculate dice for each sample in batch
+                    for j in range(predictions.shape[0]):
+                        pred = predictions[j].cpu().numpy()
+                        mask = masks[j].cpu().numpy()
+                        
+                        # Binary prediction
+                        pred_binary = (pred > threshold).astype(float)
+                        
+                        # Calculate dice
+                        intersection = (pred_binary * mask).sum()
+                        dice = (2 * intersection) / (pred_binary.sum() + mask.sum() + 1e-8)
+                        all_dice_scores.append(dice)
+                        
+                        # Store for analysis
+                        all_predictions.append(pred_binary.flatten())
+                        all_masks.append(mask.flatten())
+                        
+                        # Store some samples for visualization
+                        if len(sample_predictions) < 8:
+                            sample_predictions.append({
+                                'xray': xray[j].cpu().numpy(),
+                                'drr': drr[j].cpu().numpy(),
+                                'mask': mask.cpu().numpy(),
+                                'prediction': pred.cpu().numpy(),
+                                'dice': dice
+                            })
+                            
+                except Exception as e:
+                    print(f"⚠️ Error processing batch {i}: {e}")
+                    continue
         
         # Create comprehensive evaluation report
         self._create_evaluation_plots(all_dice_scores, all_losses, sample_predictions)
