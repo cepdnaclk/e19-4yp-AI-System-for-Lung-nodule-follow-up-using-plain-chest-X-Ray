@@ -367,8 +367,16 @@ class EvaluationVisualizer:
                     
                     # Calculate dice for each sample in batch
                     for j in range(predictions.shape[0]):
-                        pred = predictions[j].cpu().numpy()
-                        mask = masks[j].cpu().numpy()
+                        # Handle both tensor and numpy array inputs
+                        if torch.is_tensor(predictions):
+                            pred = predictions[j].cpu().numpy()
+                        else:
+                            pred = predictions[j]
+                        
+                        if torch.is_tensor(masks):
+                            mask = masks[j].cpu().numpy()
+                        else:
+                            mask = masks[j]
                         
                         # Binary prediction
                         pred_binary = (pred > threshold).astype(float)
@@ -384,11 +392,22 @@ class EvaluationVisualizer:
                         
                         # Store some samples for visualization
                         if len(sample_predictions) < 8:
+                            # Handle tensor/numpy conversion for visualization
+                            if torch.is_tensor(xray):
+                                xray_np = xray[j].cpu().numpy()
+                            else:
+                                xray_np = xray[j]
+                                
+                            if torch.is_tensor(drr):
+                                drr_np = drr[j].cpu().numpy()
+                            else:
+                                drr_np = drr[j]
+                                
                             sample_predictions.append({
-                                'xray': xray[j].cpu().numpy(),
-                                'drr': drr[j].cpu().numpy(),
-                                'mask': mask.cpu().numpy(),
-                                'prediction': pred.cpu().numpy(),
+                                'xray': xray_np,
+                                'drr': drr_np,
+                                'mask': mask,
+                                'prediction': pred,
                                 'dice': dice
                             })
                             
