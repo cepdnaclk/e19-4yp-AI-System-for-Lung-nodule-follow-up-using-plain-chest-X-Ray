@@ -10,7 +10,7 @@ import os
 import argparse
 from pathlib import Path
 
-from improved_model import create_improved_model
+from improved_model import ImprovedXrayDRRModel
 from improved_config import IMPROVED_CONFIG
 from drr_dataset_loading import DRRDataset
 from training_visualization import EvaluationVisualizer, create_final_visualization_report
@@ -84,7 +84,12 @@ def evaluate_model(model_path, dataset_split='validation', batch_size=None, save
     
     # Load model
     print("Loading model...")
-    model = create_improved_model()
+    model = ImprovedXrayDRRModel(
+        pretrained_model=None, 
+        alpha=IMPROVED_CONFIG.get('ALPHA', 0.3),
+        use_supervised_attention=IMPROVED_CONFIG.get('USE_SUPERVISED_ATTENTION', True),
+        target_pathology=IMPROVED_CONFIG.get('TARGET_PATHOLOGY', 'Nodule')
+    )
     
     if os.path.exists(model_path):
         checkpoint = torch.load(model_path, map_location=device)
