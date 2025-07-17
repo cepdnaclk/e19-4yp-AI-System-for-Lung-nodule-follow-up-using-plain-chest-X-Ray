@@ -412,15 +412,72 @@ class EvaluationVisualizer:
                             })
                             
                 except Exception as e:
-                    print(f"⚠️ Error processing batch {i}: {e}")
+                    print(f"⚠️ Error processing batch {i}: {type(e).__name__}: {str(e)}")
+                    # Print more debug info for the first few errors
+                    if i < 3:
+                        print(f"  - Batch type: {type(batch)}")
+                        if isinstance(batch, dict):
+                            print(f"  - Batch keys: {list(batch.keys())}")
+                            for key, value in batch.items():
+                                print(f"  - {key}: {type(value)} {getattr(value, 'shape', 'no shape')}")
+                        elif isinstance(batch, (list, tuple)):
+                            print(f"  - Batch length: {len(batch)}")
+                            for idx, item in enumerate(batch):
+                                print(f"  - Item {idx}: {type(item)} {getattr(item, 'shape', 'no shape')}")
                     continue
         
         # Create comprehensive evaluation report
+        if len(all_dice_scores) == 0:
+            print("⚠️ No samples were successfully evaluated. Cannot generate evaluation report.")
+            return {
+                'evaluation_summary': {
+                    'total_samples': 0,
+                    'mean_dice_score': 0.0,
+                    'std_dice_score': 0.0,
+                    'median_dice_score': 0.0,
+                    'min_dice_score': 0.0,
+                    'max_dice_score': 0.0,
+                    'mean_loss': 0.0,
+                    'std_loss': 0.0
+                },
+                'performance_categories': {
+                    'excellent_samples': 0,
+                    'good_samples': 0,
+                    'fair_samples': 0,
+                    'poor_samples': 0,
+                    'excellent_percentage': 0.0,
+                    'good_percentage': 0.0,
+                    'fair_percentage': 0.0,
+                    'poor_percentage': 0.0
+                },
+                'statistical_analysis': {
+                    'percentiles': {
+                        '10th': 0.0,
+                        '25th': 0.0,
+                        '75th': 0.0,
+                        '90th': 0.0
+                    }
+                },
+                'timestamp': datetime.now().isoformat()
+            }
+        
         self._create_evaluation_plots(all_dice_scores, all_losses, sample_predictions)
         return self._generate_evaluation_report(all_dice_scores, all_losses, all_predictions, all_masks)
     
     def _create_evaluation_plots(self, dice_scores, losses, sample_predictions):
         """Create comprehensive evaluation plots."""
+        
+        # Validate input data
+        if len(dice_scores) == 0 or len(losses) == 0:
+            print("⚠️ No data available for plotting. Skipping evaluation plots.")
+            return
+        
+        if len(dice_scores) != len(losses):
+            print(f"⚠️ Data mismatch: {len(dice_scores)} dice scores vs {len(losses)} losses")
+            # Truncate to the smaller size to avoid errors
+            min_len = min(len(dice_scores), len(losses))
+            dice_scores = dice_scores[:min_len]
+            losses = losses[:min_len]
         
         # 1. Performance distribution plots
         fig, axes = plt.subplots(2, 3, figsize=(18, 12))
