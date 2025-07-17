@@ -66,9 +66,12 @@ def interactive_mode():
     print(f"  • Spatial attention maps")
     print(f"  • Nodule-specific feature maps")
     print(f"  • Fused feature representations")
+    print(f"  • Multiple fusion methods (Weighted, Overlay, RGB)")
+    print(f"  • Detailed fusion quality analysis")
     print(f"  • Final segmentation predictions")
     print(f"  • Feature map channels for different layers")
     print(f"  • Attention analysis with statistics")
+    print(f"  • Fusion correlation with predictions")
     
     while True:
         print(f"\n" + "-"*40)

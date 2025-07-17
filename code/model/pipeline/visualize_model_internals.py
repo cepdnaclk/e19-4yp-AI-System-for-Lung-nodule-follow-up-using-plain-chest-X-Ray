@@ -10,6 +10,14 @@ import numpy as np
 import os
 from torch.utils.data import DataLoader
 
+# Try to import skimage for image resizing, fallback to torch interpolation if not available
+try:
+    from skimage.transform import resize
+    HAS_SKIMAGE = True
+except ImportError:
+    HAS_SKIMAGE = False
+    print("Warning: scikit-image not available. Using PyTorch interpolation for resizing.")
+
 from small_dataset_config import SmallDatasetConfig
 from improved_model import ImprovedXrayDRRModel  # Use the improved model
 from improved_config import IMPROVED_CONFIG  # Use improved config
@@ -145,10 +153,10 @@ class ModelInternalVisualizer:
         print(f"Visualizations saved to {save_dir}/")
     
     def _create_comprehensive_visualization(self, xray, drr, mask, segmentation, attention, save_dir, sample_idx, dataset_type="validation"):
-        """Create main overview visualization."""
+        """Create main overview visualization with fused image."""
         
-        fig, axes = plt.subplots(2, 4, figsize=(20, 10))
-        fig.suptitle(f'Model Pipeline Overview - Sample {sample_idx} ({dataset_type} set)', fontsize=16)
+        fig, axes = plt.subplots(3, 3, figsize=(18, 18))
+        fig.suptitle(f'Model Pipeline Overview with Fusion - Sample {sample_idx} ({dataset_type} set)', fontsize=16)
         
         # Convert tensors to numpy for visualization
         xray_np = self._tensor_to_numpy(xray)
@@ -157,7 +165,12 @@ class ModelInternalVisualizer:
         seg_np = torch.sigmoid(segmentation).cpu().numpy()[0, 0]
         attention_np = attention.cpu().numpy()[0, 0]
         
-        # Row 1: Inputs and Ground Truth
+        # Create fused images using different fusion techniques
+        fused_weighted = self._create_weighted_fusion(xray_np, drr_np, attention_np)
+        fused_overlay = self._create_overlay_fusion(xray_np, drr_np, attention_np)
+        fused_rgb = self._create_rgb_fusion(xray_np, drr_np, attention_np)
+        
+        # Row 1: Inputs and Attention
         axes[0, 0].imshow(xray_np, cmap='gray')
         axes[0, 0].set_title('Input X-ray')
         axes[0, 0].axis('off')
@@ -166,54 +179,293 @@ class ModelInternalVisualizer:
         axes[0, 1].set_title('Input DRR')
         axes[0, 1].axis('off')
         
-        axes[0, 2].imshow(mask_np, cmap='jet', alpha=0.7)
-        axes[0, 2].imshow(xray_np, cmap='gray', alpha=0.3)
-        axes[0, 2].set_title('Ground Truth Mask')
+        axes[0, 2].imshow(attention_np, cmap='hot')
+        axes[0, 2].set_title('Spatial Attention Map')
         axes[0, 2].axis('off')
         
-        axes[0, 3].imshow(attention_np, cmap='hot')
-        axes[0, 3].set_title('Spatial Attention')
-        axes[0, 3].axis('off')
+        # Row 2: Fusion Methods
+        axes[1, 0].imshow(fused_weighted, cmap='viridis')
+        axes[1, 0].set_title('Weighted Fusion\n(X-ray + Attention*DRR)')
+        axes[1, 0].axis('off')
         
-        # Row 2: Intermediate and Final Outputs
+        axes[1, 1].imshow(fused_overlay, cmap='plasma')
+        axes[1, 1].set_title('Overlay Fusion\n(High Attention Regions)')
+        axes[1, 1].axis('off')
+        
+        axes[1, 2].imshow(fused_rgb)
+        axes[1, 2].set_title('RGB Fusion\n(R:X-ray, G:DRR, B:Attn)')
+        axes[1, 2].axis('off')
+        
+        # Row 3: Features, Prediction and Comparison
         # Show nodule-specific features (average across channels)
         if 'nodule_specific_features' in self.feature_maps:
             nodule_feat = self.feature_maps['nodule_specific_features'].cpu().numpy()[0]
             nodule_feat_avg = np.mean(nodule_feat, axis=0)
-            axes[1, 0].imshow(nodule_feat_avg, cmap='viridis')
-            axes[1, 0].set_title('Nodule-Specific Features\n(Channel Average)')
-            axes[1, 0].axis('off')
+            axes[2, 0].imshow(nodule_feat_avg, cmap='viridis')
+            axes[2, 0].set_title('Nodule-Specific Features\n(Channel Average)')
+            axes[2, 0].axis('off')
         else:
-            axes[1, 0].text(0.5, 0.5, 'Nodule Features\nNot Available', 
-                           ha='center', va='center', transform=axes[1, 0].transAxes)
-            axes[1, 0].axis('off')
+            axes[2, 0].text(0.5, 0.5, 'Nodule Features\nNot Available', 
+                           ha='center', va='center', transform=axes[2, 0].transAxes)
+            axes[2, 0].axis('off')
         
-        # Show adapted features (equivalent to fused features in improved model)
-        if 'adapted_features' in self.feature_maps:
-            adapted_feat = self.feature_maps['adapted_features'].cpu().numpy()[0]
-            adapted_feat_avg = np.mean(adapted_feat, axis=0)
-            axes[1, 1].imshow(adapted_feat_avg, cmap='plasma')
-            axes[1, 1].set_title('Adapted Features\n(Channel Average)')
-            axes[1, 1].axis('off')
-        else:
-            axes[1, 1].text(0.5, 0.5, 'Adapted Features\nNot Available', 
-                           ha='center', va='center', transform=axes[1, 1].transAxes)
-            axes[1, 1].axis('off')
+        # Show prediction overlay
+        axes[2, 1].imshow(xray_np, cmap='gray')
+        axes[2, 1].imshow(seg_np, cmap='jet', alpha=0.6)
+        axes[2, 1].set_title('Predicted Segmentation\n(on X-ray)')
+        axes[2, 1].axis('off')
         
-        # Show prediction
-        axes[1, 2].imshow(seg_np, cmap='jet', alpha=0.7)
-        axes[1, 2].imshow(xray_np, cmap='gray', alpha=0.3)
-        axes[1, 2].set_title('Predicted Segmentation')
-        axes[1, 2].axis('off')
-        
-        # Show comparison
+        # Show ground truth vs prediction comparison
         comparison = self._create_comparison_image(mask_np, seg_np)
-        axes[1, 3].imshow(comparison)
-        axes[1, 3].set_title('GT (Red) vs Pred (Green)')
-        axes[1, 3].axis('off')
+        axes[2, 2].imshow(comparison)
+        axes[2, 2].set_title('GT (Red) vs Pred (Green)\nOverlap (Yellow)')
+        axes[2, 2].axis('off')
         
         plt.tight_layout()
         plt.savefig(os.path.join(save_dir, f'overview_sample_{sample_idx}_{dataset_type}.png'), 
+                   dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Create separate detailed fusion analysis
+        self._create_detailed_fusion_analysis(xray_np, drr_np, attention_np, mask_np, seg_np, 
+                                            save_dir, sample_idx, dataset_type)
+    
+    def _normalize_image(self, img):
+        """Normalize image to [0, 1] range."""
+        img_min, img_max = img.min(), img.max()
+        if img_max > img_min:
+            return (img - img_min) / (img_max - img_min)
+        else:
+            return img
+    
+    def _create_weighted_fusion(self, xray, drr, attention):
+        """Create weighted fusion of X-ray and DRR using attention."""
+        # Normalize inputs
+        xray_norm = self._normalize_image(xray)
+        drr_norm = self._normalize_image(drr)
+        attention_norm = self._normalize_image(attention)
+        
+        # Resize attention to match image dimensions if needed
+        if attention_norm.shape != xray_norm.shape:
+            if HAS_SKIMAGE:
+                attention_norm = resize(attention_norm, xray_norm.shape, preserve_range=True)
+            else:
+                # Use PyTorch interpolation as fallback
+                attention_tensor = torch.from_numpy(attention_norm).unsqueeze(0).unsqueeze(0).float()
+                attention_resized = F.interpolate(
+                    attention_tensor, 
+                    size=xray_norm.shape, 
+                    mode='bilinear', 
+                    align_corners=False
+                )
+                attention_norm = attention_resized.squeeze().numpy()
+        
+        # Weighted combination: X-ray as base, DRR weighted by attention
+        alpha = 0.7  # X-ray weight
+        beta = 0.3   # DRR weight
+        return alpha * xray_norm + beta * drr_norm * attention_norm
+    
+    def _create_overlay_fusion(self, xray, drr, attention):
+        """Create overlay fusion showing high attention regions."""
+        # Normalize inputs
+        xray_norm = self._normalize_image(xray)
+        drr_norm = self._normalize_image(drr)
+        attention_norm = self._normalize_image(attention)
+        
+        # Resize attention if needed
+        if attention_norm.shape != xray_norm.shape:
+            if HAS_SKIMAGE:
+                attention_norm = resize(attention_norm, xray_norm.shape, preserve_range=True)
+            else:
+                attention_tensor = torch.from_numpy(attention_norm).unsqueeze(0).unsqueeze(0).float()
+                attention_resized = F.interpolate(
+                    attention_tensor, 
+                    size=xray_norm.shape, 
+                    mode='bilinear', 
+                    align_corners=False
+                )
+                attention_norm = attention_resized.squeeze().numpy()
+        
+        # High attention regions get enhanced DRR, low attention regions get X-ray
+        threshold = 0.5
+        mask = attention_norm > threshold
+        fused = xray_norm.copy()
+        fused[mask] = 0.5 * xray_norm[mask] + 0.5 * drr_norm[mask]
+        return fused
+    
+    def _create_rgb_fusion(self, xray, drr, attention):
+        """Create RGB fusion for multi-channel visualization."""
+        # Normalize inputs
+        xray_norm = self._normalize_image(xray)
+        drr_norm = self._normalize_image(drr)
+        attention_norm = self._normalize_image(attention)
+        
+        # Resize attention if needed
+        if attention_norm.shape != xray_norm.shape:
+            if HAS_SKIMAGE:
+                attention_norm = resize(attention_norm, xray_norm.shape, preserve_range=True)
+            else:
+                attention_tensor = torch.from_numpy(attention_norm).unsqueeze(0).unsqueeze(0).float()
+                attention_resized = F.interpolate(
+                    attention_tensor, 
+                    size=xray_norm.shape, 
+                    mode='bilinear', 
+                    align_corners=False
+                )
+                attention_norm = attention_resized.squeeze().numpy()
+        
+        # Create RGB image: R=X-ray, G=DRR*attention, B=X-ray*0.5
+        h, w = xray_norm.shape
+        rgb_fused = np.zeros((h, w, 3))
+        rgb_fused[:, :, 0] = xray_norm  # Red channel: X-ray
+        rgb_fused[:, :, 1] = drr_norm * attention_norm  # Green channel: attention-weighted DRR
+        rgb_fused[:, :, 2] = xray_norm * 0.5  # Blue channel: dimmed X-ray
+        return rgb_fused
+    
+    def _create_detailed_fusion_analysis(self, xray, drr, attention, mask, prediction, save_dir, sample_idx, dataset_type):
+        """Create detailed fusion analysis with multiple methods."""
+        
+        fig, axes = plt.subplots(2, 4, figsize=(20, 12))
+        fig.suptitle(f'Detailed Fusion Analysis - Sample {sample_idx} ({dataset_type} set)', fontsize=16)
+        
+        # Create different fusion methods
+        fusion_methods = {
+            'Weighted (α=0.7)': self._create_weighted_fusion(xray, drr, attention),
+            'Overlay (thresh=0.5)': self._create_overlay_fusion(xray, drr, attention),
+            'Multiplicative': self._normalize_image(xray) * self._normalize_image(drr) * self._normalize_image(attention),
+            'Additive': 0.5 * (self._normalize_image(xray) + self._normalize_image(drr) * self._normalize_image(attention))
+        }
+        
+        # Top row: Original inputs and fusion methods
+        axes[0, 0].imshow(xray, cmap='gray')
+        axes[0, 0].set_title('X-ray Input')
+        axes[0, 0].axis('off')
+        
+        axes[0, 1].imshow(drr, cmap='gray')
+        axes[0, 1].set_title('DRR Input')
+        axes[0, 1].axis('off')
+        
+        axes[0, 2].imshow(attention, cmap='hot')
+        axes[0, 2].set_title('Attention Map')
+        axes[0, 2].axis('off')
+        
+        # RGB fusion
+        rgb_fusion = self._create_rgb_fusion(xray, drr, attention)
+        axes[0, 3].imshow(rgb_fusion)
+        axes[0, 3].set_title('RGB Fusion\n(R:X-ray, G:DRR×Attn, B:X-ray×0.5)')
+        axes[0, 3].axis('off')
+        
+        # Bottom row: Different fusion methods
+        for i, (method_name, fused_img) in enumerate(fusion_methods.items()):
+            axes[1, i].imshow(fused_img, cmap='viridis')
+            axes[1, i].set_title(f'{method_name}')
+            axes[1, i].axis('off')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, f'fusion_analysis_sample_{sample_idx}_{dataset_type}.png'), 
+                   dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Create fusion quality analysis
+        self._create_fusion_quality_analysis(xray, drr, attention, mask, prediction, 
+                                           save_dir, sample_idx, dataset_type)
+    
+    def _create_fusion_quality_analysis(self, xray, drr, attention, mask, prediction, save_dir, sample_idx, dataset_type):
+        """Analyze fusion quality and correlation with predictions."""
+        
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        fig.suptitle(f'Fusion Quality Analysis - Sample {sample_idx} ({dataset_type} set)', fontsize=16)
+        
+        # Normalize inputs
+        xray_norm = self._normalize_image(xray)
+        drr_norm = self._normalize_image(drr)
+        attention_norm = self._normalize_image(attention)
+        
+        # Resize attention if needed
+        if attention_norm.shape != xray_norm.shape:
+            if HAS_SKIMAGE:
+                attention_norm = resize(attention_norm, xray_norm.shape, preserve_range=True)
+            else:
+                attention_tensor = torch.from_numpy(attention_norm).unsqueeze(0).unsqueeze(0).float()
+                attention_resized = F.interpolate(
+                    attention_tensor, 
+                    size=xray_norm.shape, 
+                    mode='bilinear', 
+                    align_corners=False
+                )
+                attention_norm = attention_resized.squeeze().numpy()
+        
+        # Create different fusion methods
+        weighted_fusion = self._create_weighted_fusion(xray, drr, attention)
+        
+        # Top row: Fusion overlays with ground truth and prediction
+        axes[0, 0].imshow(weighted_fusion, cmap='viridis')
+        axes[0, 0].contour(mask, colors='red', linewidths=2, alpha=0.8)
+        axes[0, 0].set_title('Weighted Fusion + GT Contour (Red)')
+        axes[0, 0].axis('off')
+        
+        axes[0, 1].imshow(weighted_fusion, cmap='viridis')
+        axes[0, 1].contour(prediction, colors='yellow', linewidths=2, alpha=0.8)
+        axes[0, 1].set_title('Weighted Fusion + Prediction Contour (Yellow)')
+        axes[0, 1].axis('off')
+        
+        # Fusion with both contours
+        axes[0, 2].imshow(weighted_fusion, cmap='viridis')
+        axes[0, 2].contour(mask, colors='red', linewidths=2, alpha=0.8)
+        axes[0, 2].contour(prediction, colors='yellow', linewidths=2, alpha=0.8)
+        axes[0, 2].set_title('Fusion + GT (Red) + Pred (Yellow)')
+        axes[0, 2].axis('off')
+        
+        # Bottom row: Attention analysis
+        # Attention statistics
+        attention_stats = {
+            'Mean': np.mean(attention_norm),
+            'Std': np.std(attention_norm),
+            'Max': np.max(attention_norm),
+            'Min': np.min(attention_norm)
+        }
+        
+        # Attention overlay on fusion
+        axes[1, 0].imshow(weighted_fusion, cmap='gray')
+        axes[1, 0].imshow(attention_norm, cmap='hot', alpha=0.6)
+        axes[1, 0].set_title('Fusion + Attention Overlay')
+        axes[1, 0].axis('off')
+        
+        # Attention histogram
+        axes[1, 1].hist(attention_norm.flatten(), bins=50, alpha=0.7, color='orange', edgecolor='black')
+        axes[1, 1].axvline(attention_stats['Mean'], color='red', linestyle='--', 
+                          label=f"Mean: {attention_stats['Mean']:.3f}")
+        axes[1, 1].set_title('Attention Distribution')
+        axes[1, 1].set_xlabel('Attention Value')
+        axes[1, 1].set_ylabel('Frequency')
+        axes[1, 1].legend()
+        axes[1, 1].grid(True, alpha=0.3)
+        
+        # Statistics text
+        stats_text = f"""Attention Statistics:
+        
+Mean: {attention_stats['Mean']:.4f}
+Std:  {attention_stats['Std']:.4f}
+Max:  {attention_stats['Max']:.4f}
+Min:  {attention_stats['Min']:.4f}
+
+Fusion Quality Metrics:
+• High attention coverage: {np.sum(attention_norm > 0.7) / attention_norm.size * 100:.1f}%
+• Medium attention coverage: {np.sum((attention_norm > 0.3) & (attention_norm <= 0.7)) / attention_norm.size * 100:.1f}%
+• Low attention coverage: {np.sum(attention_norm <= 0.3) / attention_norm.size * 100:.1f}%
+
+Image Properties:
+• X-ray contrast: {np.std(xray_norm):.4f}
+• DRR contrast: {np.std(drr_norm):.4f}
+• Fusion contrast: {np.std(weighted_fusion):.4f}"""
+        
+        axes[1, 2].text(0.05, 0.95, stats_text, transform=axes[1, 2].transAxes, 
+                        fontsize=10, verticalalignment='top', fontfamily='monospace',
+                        bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+        axes[1, 2].axis('off')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, f'fusion_quality_analysis_sample_{sample_idx}_{dataset_type}.png'), 
                    dpi=300, bbox_inches='tight')
         plt.close()
     
