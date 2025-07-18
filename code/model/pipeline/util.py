@@ -71,6 +71,17 @@ def dice_coefficient(pred, target, eps=1e-7):
     dice = (2. * intersection + eps) / (union + eps)
     return dice.item()
 
+def jaccard_index(pred, target, eps=1e-7):
+    """Calculate Jaccard index (IoU) metric."""
+    pred = pred.view(-1)
+    target = target.view(-1)
+    
+    intersection = (pred * target).sum()
+    union = pred.sum() + target.sum() - intersection
+    
+    jaccard = (intersection + eps) / (union + eps)
+    return jaccard.item()
+
 def focal_loss(pred, target, alpha=1, gamma=2, eps=1e-7):
     """Focal loss for handling class imbalance."""
     ce_loss = F.binary_cross_entropy(pred, target, reduction='none')
@@ -83,6 +94,45 @@ def combined_loss(pred, target, dice_weight=0.5, focal_weight=0.5):
     d_loss = dice_loss(pred, target)
     f_loss = focal_loss(pred, target)
     return dice_weight * d_loss + focal_weight * f_loss
+
+def weighted_bce_loss(pred, target, pos_weight=10.0):
+    """Weighted Binary Cross Entropy to handle class imbalance."""
+    # Calculate positive weight based on class distribution
+    pos_pixels = target.sum()
+    neg_pixels = target.numel() - pos_pixels
+    
+    if pos_pixels > 0:
+        calculated_pos_weight = neg_pixels / pos_pixels
+        pos_weight = min(pos_weight, calculated_pos_weight)
+    
+    return F.binary_cross_entropy(pred, target, 
+                                 weight=target * pos_weight + (1 - target))
+
+def hybrid_loss(pred, target, dice_weight=0.3, focal_weight=0.3, bce_weight=0.4, pos_weight=10.0):
+    """Hybrid loss combining dice, focal, and weighted BCE."""
+    d_loss = dice_loss(pred, target)
+    f_loss = focal_loss(pred, target)
+    w_bce_loss = weighted_bce_loss(pred, target, pos_weight)
+    
+    return dice_weight * d_loss + focal_weight * f_loss + bce_weight * w_bce_loss
+
+def find_optimal_threshold(pred, target, thresholds=None):
+    """Find optimal threshold for binary segmentation."""
+    if thresholds is None:
+        thresholds = torch.linspace(0.1, 0.9, 17)
+    
+    best_threshold = 0.5
+    best_dice = 0.0
+    
+    for threshold in thresholds:
+        pred_binary = (pred > threshold).float()
+        dice = dice_coefficient(pred_binary, target)
+        
+        if dice > best_dice:
+            best_dice = dice
+            best_threshold = threshold.item()
+    
+    return best_threshold, best_dice
 
 def calculate_metrics(pred, target, threshold=0.5):
     """Calculate comprehensive metrics for segmentation."""
